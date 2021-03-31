@@ -18,6 +18,10 @@ import (
 )
 
 func InArray(obj interface{}, target interface{}) bool {
+	if target == nil {
+		return false
+	}
+
 	targetValue := reflect.ValueOf(target)
 	switch reflect.TypeOf(target).Kind() {
 	case reflect.Slice, reflect.Array:
@@ -60,12 +64,37 @@ func StrArrayUnique(a []string) (ret []string) {
 
 // IntArrayUnique get unique int array
 func IntArrayUnique(a []int64) (ret []int64) {
-	ret = make([]int64, 0)
-	length := len(a)
-	for i := 0; i < length; i++ {
-		if !ContainsInt(ret, a[i]) {
-			ret = append(ret, a[i])
+	unique := make(map[int64]struct{})
+	for _, val := range a {
+		unique[val] = struct{}{}
+	}
+	ret = make([]int64, len(unique))
+	idx := 0
+	for k := range unique {
+		ret[idx] = k
+		idx += 1
+	}
+
+	return ret
+}
+
+func BoolArrayUnique(a []bool) (ret []bool) {
+	ret = make([]bool, 0)
+	trueExist := false
+	falseExist := false
+	for _, item := range a {
+		if item == true {
+			trueExist = true
 		}
+		if item == false {
+			falseExist = true
+		}
+	}
+	if trueExist {
+		ret = append(ret, true)
+	}
+	if falseExist {
+		ret = append(ret, false)
 	}
 	return ret
 }

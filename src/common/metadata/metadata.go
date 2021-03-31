@@ -17,6 +17,7 @@ import (
 	"fmt"
 	"strconv"
 
+	"configcenter/src/common"
 	"configcenter/src/common/blog"
 	"configcenter/src/common/json"
 	"configcenter/src/common/mapstr"
@@ -44,7 +45,7 @@ const (
 var (
 	LabelKeyNotExistError = errors.New("label key does not exist")
 )
-
+var MetadataBizField = "metadata.label.bk_biz_id"
 var BizLabelNotExist = mapstr.MapStr{"metadata.label.bk_biz_id": mapstr.MapStr{"$exists": false}}
 
 /*
@@ -99,7 +100,7 @@ func NewPublicOrBizConditionByBizID(businessID int64) mapstr.MapStr {
 	if businessID != 0 {
 		condArr = append(condArr, mapstr.MapStr{"metadata.label.bk_biz_id": strconv.FormatInt(businessID, 10)})
 	}
-	return mapstr.MapStr{"$or": condArr}
+	return mapstr.MapStr{common.BKDBOR: condArr}
 }
 
 const (
@@ -180,6 +181,9 @@ type Metadata struct {
 }
 
 func (md *Metadata) ParseBizID() (int64, error) {
+	if md == nil {
+		return 0, errors.New("invalid nil matadata")
+	}
 	bizID, err := BizIDFromMetadata(*md)
 	if err != nil {
 		return 0, err

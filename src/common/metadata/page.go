@@ -29,14 +29,16 @@ const (
 
 // BasePage for paging query
 type BasePage struct {
-	Sort  string `json:"sort,omitempty"`
-	Limit int    `json:"limit,omitempty"`
-	Start int    `json:"start"`
+	Sort  string `json:"sort,omitempty" mapstructure:"sort"`
+	Limit int    `json:"limit,omitempty" mapstructure:"limit"`
+	Start int    `json:"start" mapstructure:"start"`
 }
 
-func (page BasePage) Validate() (string, error) {
+func (page BasePage) Validate(allowNoLimit bool) (string, error) {
 	if page.Limit > common.BKMaxPageSize {
-		return "limit", fmt.Errorf("exceed max page size: %d", common.BKMaxPageSize)
+		if page.Limit != common.BKNoLimit || allowNoLimit != true {
+			return "limit", fmt.Errorf("exceed max page size: %d", common.BKMaxPageSize)
+		}
 	}
 	return "", nil
 }
@@ -44,7 +46,7 @@ func (page BasePage) Validate() (string, error) {
 // IsIllegal  limit is illegal
 func (page BasePage) IsIllegal() bool {
 	if page.Limit > common.BKMaxPageSize && page.Limit != common.BKNoLimit ||
-		page.Limit == 0 {
+		page.Limit <= 0 {
 		return true
 	}
 	return false
@@ -72,4 +74,8 @@ func ParsePage(origin interface{}) BasePage {
 		}
 	}
 	return result
+}
+
+func (page BasePage) ToSearchSort() []SearchSort {
+	return NewSearchSortParse().String(page.Sort).ToSearchSortArr()
 }

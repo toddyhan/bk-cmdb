@@ -1,6 +1,9 @@
 <template>
-    <div class="custom-fields-layout">
+    <div class="custom-fields-layout" :style="{ padding: featureTips ? '15px 0 0 0' : 0 }">
+        <cmdb-tips class="ml20 mr20 mb10" tips-key="showCustomFields" v-model="featureTips">{{$t('自定义字段功能提示')}}</cmdb-tips>
         <bk-tab class="tab-layout"
+            :style="`--subHeight: ${featureTips ? '42px' : 0}`"
+            :active.sync="active"
             type="unborder-card"
             @tab-change="handleTabChange">
             <bk-tab-panel v-for="model in mainLine"
@@ -8,46 +11,43 @@
                 :key="model.bk_obj_id"
                 :name="model.bk_obj_id"
                 :label="model.bk_obj_name">
-                <template>
-                    <feature-tips
-                        :feature-name="'customFields'"
-                        :show-tips="showFeatureTips"
-                        :desc="$t('自定义字段功能提示')"
-                        @close-tips="showFeatureTips = false">
-                    </feature-tips>
-                    <field-group class="model-detail-wrapper"
-                        :class="{
-                            'has-tips': showFeatureTips
-                        }"
-                        :custom-obj-id="model.bk_obj_id">
-                    </field-group>
-                </template>
+                <field-group class="model-detail-wrapper"
+                    :class="{
+                        'has-tips': featureTips
+                    }"
+                    :custom-obj-id="model.bk_obj_id">
+                </field-group>
             </bk-tab-panel>
         </bk-tab>
     </div>
 </template>
 
 <script>
-    import featureTips from '@/components/feature-tips/index'
     import fieldGroup from '@/components/model-manage/field-group'
-    import { mapGetters } from 'vuex'
+    import RouterQuery from '@/router/query'
     export default {
         components: {
-            fieldGroup,
-            featureTips
+            fieldGroup
         },
         data () {
             return {
-                mainLine: [],
-                showFeatureTips: false
+                active: RouterQuery.get('tab', 'set'),
+                featureTips: true,
+                mainLine: []
             }
         },
-        computed: {
-            ...mapGetters(['featureTipsParams'])
+        watch: {
+            active: {
+                immediate: true,
+                handler (active) {
+                    RouterQuery.set({
+                        tab: active
+                    })
+                }
+            }
         },
         async created () {
             try {
-                this.showFeatureTips = this.featureTipsParams['customFields']
                 const data = await this.getMainLine()
                 this.mainLine = data.filter(model => ['host', 'set', 'module'].includes(model.bk_obj_id))
             } catch (e) {
@@ -71,10 +71,8 @@
 </script>
 
 <style lang="scss" scoped>
-    .custom-fields-layout {
-        padding: 0;
-    }
     .tab-layout {
+        height: calc(100% - var(--subHeight));
         /deep/ {
             .bk-tab-content {
                 padding-top: 10px;

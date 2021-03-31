@@ -15,13 +15,14 @@ package metadata
 import (
 	"net/http"
 
+	"configcenter/src/common/errors"
+
 	"github.com/gin-gonic/gin"
 )
 
 type LoginUserInfoOwnerUinList struct {
 	OwnerID    string `json:"id"`
 	OwnerName  string `json:"name"`
-	SupplierID int64  `json:"supplier_id"`
 	Role       int64  `json:"role"`
 }
 
@@ -38,14 +39,12 @@ type LoginUserInfo struct {
 	Extra         map[string]interface{}      `json:"extra"`         //custom information
 	Language      string                      `json:"-"`
 	AvatarUrl     string                      `json:"avatar_url"`
-	SupplierID    int64                       `json:"supplier_id"`
 	MultiSupplier bool                        `json:"multi_supplier"`
 }
 
 type LoginPluginInfo struct {
-	Name    string // plugin info
-	Version string // In what version is used
-	//CookieEnv string // Reserved word, not used now,  When the cookie has the current key, it is used preferentially.
+	Name       string // plugin info
+	Version    string // In what version is used
 	HandleFunc LoginUserPluginInerface
 }
 
@@ -58,8 +57,8 @@ type LoginUserPluginParams struct {
 
 type LoginUserPluginInerface interface {
 	LoginUser(c *gin.Context, config map[string]string, isMultiOwner bool) (user *LoginUserInfo, loginSucc bool)
-	GetUserList(c *gin.Context, config map[string]string) ([]*LoginSystemUserInfo, error)
 	GetLoginUrl(c *gin.Context, config map[string]string, input *LogoutRequestParams) string
+	GetUserList(c *gin.Context, config map[string]string) ([]*LoginSystemUserInfo, *errors.RawErrorInfo)
 }
 
 type LoginSystemUserInfo struct {
@@ -70,6 +69,16 @@ type LoginSystemUserInfo struct {
 type LonginSystemUserListResult struct {
 	BaseResp `json:",inline"`
 	Data     []*LoginSystemUserInfo `json:"data"`
+}
+
+type DepartmentResult struct {
+	BaseResp `json:",inline"`
+	Data     *DepartmentData `json:"data"`
+}
+
+type DepartmentProfileResult struct {
+	BaseResp `json:",inline"`
+	Data     *DepartmentProfileData `json:"data"`
 }
 
 type LoginUserInfoDetail struct {

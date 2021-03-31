@@ -1,68 +1,74 @@
 <template>
     <div class="details-layout">
-        <cmdb-host-info
-            ref="info"
-            @info-toggle="setInfoHeight">
-        </cmdb-host-info>
-        <bk-tab class="details-tab"
-            type="unborder-card"
-            :active.sync="active"
-            :style="{
-                '--infoHeight': infoHeight
-            }">
-            <bk-tab-panel name="property" :label="$t('主机属性')">
-                <cmdb-host-property></cmdb-host-property>
-            </bk-tab-panel>
-            <bk-tab-panel name="association" :label="$t('关联')">
-                <cmdb-host-association v-if="active === 'association'"></cmdb-host-association>
-            </bk-tab-panel>
-            <bk-tab-panel name="status" :label="$t('实时状态')">
-                <cmdb-host-status v-if="active === 'status'"></cmdb-host-status>
-            </bk-tab-panel>
-            <bk-tab-panel name="service" :label="$t('服务列表')" :visible="business > -1">
-                <cmdb-host-service v-if="active === 'service'"></cmdb-host-service>
-            </bk-tab-panel>
-            <bk-tab-panel name="history" :label="$t('变更记录')">
-                <cmdb-host-history v-if="active === 'history'"></cmdb-host-history>
-            </bk-tab-panel>
-        </bk-tab>
+        <div v-bkloading="{ isLoading: loading }" style="height: 100%;">
+            <cmdb-host-info
+                ref="info"
+                @info-toggle="setInfoHeight">
+            </cmdb-host-info>
+            <bk-tab class="details-tab" v-if="!loading"
+                type="unborder-card"
+                :active.sync="active"
+                :style="{
+                    '--infoHeight': infoHeight
+                }">
+                <bk-tab-panel name="property" :label="$t('主机属性')">
+                    <cmdb-host-property></cmdb-host-property>
+                </bk-tab-panel>
+                <bk-tab-panel name="service" :label="$t('服务列表')" :visible="isBusinessHost">
+                    <cmdb-host-service v-if="active === 'service'"></cmdb-host-service>
+                </bk-tab-panel>
+                <bk-tab-panel name="status" :label="$t('实时状态')">
+                    <cmdb-host-status v-if="active === 'status'"></cmdb-host-status>
+                </bk-tab-panel>
+                <bk-tab-panel name="association" :label="$t('关联')">
+                    <cmdb-host-association v-if="active === 'association'"></cmdb-host-association>
+                </bk-tab-panel>
+                <bk-tab-panel name="history" :label="$t('变更记录')">
+                    <cmdb-audit-history v-if="active === 'history'"
+                        resource-type="host"
+                        category="host"
+                        :resource-id="id">
+                    </cmdb-audit-history>
+                </bk-tab-panel>
+            </bk-tab>
+        </div>
     </div>
 </template>
 
 <script>
-    import { mapState } from 'vuex'
+    import { mapState, mapGetters } from 'vuex'
     import cmdbHostInfo from './children/info.vue'
     import cmdbHostAssociation from './children/association.vue'
     import cmdbHostProperty from './children/property.vue'
     import cmdbHostStatus from './children/status.vue'
-    import cmdbHostHistory from './children/history.vue'
+    import cmdbAuditHistory from '@/components/model-instance/audit-history'
     import cmdbHostService from './children/service-list.vue'
-    import {
-        MENU_BUSINESS_HOST_MANAGEMENT,
-        MENU_RESOURCE_HOST
-    } from '@/dictionary/menu-symbol'
+    import RouterQuery from '@/router/query'
     export default {
         components: {
             cmdbHostInfo,
             cmdbHostAssociation,
             cmdbHostProperty,
             cmdbHostStatus,
-            cmdbHostHistory,
+            cmdbAuditHistory,
             cmdbHostService
         },
         data () {
             return {
-                active: 'property',
-                infoHeight: '81px'
+                active: RouterQuery.get('tab', 'property'),
+                infoHeight: '81px',
+                loading: true
             }
         },
         computed: {
-            ...mapState('hostDetails', ['info']),
+            ...mapGetters(['supplierAccount']),
+            ...mapState('hostDetails', ['info', 'isBusinessHost']),
+            ...mapGetters('hostDetails', ['isBusinessHost']),
             id () {
                 return parseInt(this.$route.params.id)
             },
             business () {
-                const business = parseInt(this.$route.params.business)
+                const business = parseInt(this.$route.params.bizId)
                 if (isNaN(business)) {
                     return -1
                 }
@@ -85,6 +91,9 @@
                 if (active !== 'association') {
                     this.$store.commit('hostDetails/toggleExpandAll', false)
                 }
+                RouterQuery.set({
+                    tab: active
+                })
             }
         },
         created () {
@@ -92,20 +101,21 @@
         },
         methods: {
             setBreadcrumbs (ip) {
-                const isFromBusiness = this.$route.query.from === 'business'
-                this.$store.commit('setBreadcrumbs', [{
-                    label: isFromBusiness ? this.$t('业务主机') : this.$t('主机'),
-                    route: {
-                        name: isFromBusiness ? MENU_BUSINESS_HOST_MANAGEMENT : MENU_RESOURCE_HOST
-                    }
-                }, {
-                    label: ip
-                }])
+                this.$store.commit('setTitle', `${this.$t('主机详情')}【${ip}】`)
             },
-            getData () {
-                this.getProperties()
-                this.getPropertyGroups()
-                this.getHostInfo()
+            async getData () {
+                try {
+                    this.loading = true
+                    await Promise.all([
+                        this.getProperties(),
+                        this.getPropertyGroups(),
+                        this.getHostInfo()
+                    ])
+                } catch (error) {
+                    console.error(error)
+                } finally {
+                    this.loading = false
+                }
             },
             async getHostInfo () {
                 try {
@@ -115,7 +125,7 @@
                     if (info.length) {
                         this.$store.commit('hostDetails/setHostInfo', info[0])
                     } else {
-                        this.$router.replace({ name: 404 })
+                        this.$routerActions.redirect({ name: 404 })
                     }
                 } catch (e) {
                     console.error(e)
@@ -128,7 +138,7 @@
                     operator: '$eq',
                     value: this.id
                 }
-                return this.$injectMetadata({
+                return {
                     bk_biz_id: this.business,
                     condition: ['biz', 'set', 'module', 'host'].map(model => {
                         return {
@@ -138,14 +148,19 @@
                         }
                     }),
                     ip: { flag: 'bk_host_innerip', exact: 1, data: [] }
-                })
+                }
             },
             async getProperties () {
                 try {
+                    const params = {
+                        bk_supplier_account: this.supplierAccount,
+                        bk_obj_id: 'host'
+                    }
+                    if (this.business > 0) {
+                        params.bk_biz_id = this.business
+                    }
                     const properties = await this.$store.dispatch('objectModelProperty/searchObjectAttribute', {
-                        params: this.$injectMetadata({
-                            bk_obj_id: 'host'
-                        })
+                        params: params
                     })
                     this.$store.commit('hostDetails/setHostProperties', properties)
                 } catch (e) {
@@ -157,7 +172,7 @@
                 try {
                     const propertyGroups = await this.$store.dispatch('objectModelFieldGroup/searchGroup', {
                         objId: 'host',
-                        params: this.$injectMetadata()
+                        params: this.business > 0 ? { bk_biz_id: this.business } : {}
                     })
                     this.$store.commit('hostDetails/setHostPropertyGroups', propertyGroups)
                 } catch (e) {
@@ -166,7 +181,10 @@
                 }
             },
             setInfoHeight (height) {
-                this.infoHeight = height + 'px'
+                this.infoTimer && clearTimeout(this.infoTimer)
+                this.infoTimer = setTimeout(() => {
+                    this.infoHeight = this.$refs.info.$el.offsetHeight + 'px'
+                }, 250)
             }
         }
     }
@@ -178,9 +196,15 @@
         .details-tab {
             height: calc(100% - var(--infoHeight)) !important;
             min-height: 400px;
-            /deep/ .bk-tab-header {
-                padding: 0;
-                margin: 0 20px;
+            /deep/ {
+                .bk-tab-header {
+                    padding: 0;
+                    margin: 0 20px;
+                }
+                .bk-tab-section {
+                    @include scrollbar-y;
+                    padding-bottom: 10px;
+                }
             }
         }
     }

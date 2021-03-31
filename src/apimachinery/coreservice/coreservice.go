@@ -17,16 +17,24 @@ import (
 
 	"configcenter/src/apimachinery/coreservice/association"
 	"configcenter/src/apimachinery/coreservice/auditlog"
-	"configcenter/src/apimachinery/coreservice/cloudsync"
+	"configcenter/src/apimachinery/coreservice/auth"
+	"configcenter/src/apimachinery/coreservice/cloud"
+	"configcenter/src/apimachinery/coreservice/count"
+	"configcenter/src/apimachinery/coreservice/common"
+	"configcenter/src/apimachinery/coreservice/event"
 	"configcenter/src/apimachinery/coreservice/host"
+	"configcenter/src/apimachinery/coreservice/hostapplyrule"
 	"configcenter/src/apimachinery/coreservice/instance"
 	"configcenter/src/apimachinery/coreservice/label"
 	"configcenter/src/apimachinery/coreservice/mainline"
 	"configcenter/src/apimachinery/coreservice/model"
-	"configcenter/src/apimachinery/coreservice/privilege"
+	"configcenter/src/apimachinery/coreservice/operation"
 	"configcenter/src/apimachinery/coreservice/process"
+	"configcenter/src/apimachinery/coreservice/settemplate"
 	"configcenter/src/apimachinery/coreservice/synchronize"
+	ccSystem "configcenter/src/apimachinery/coreservice/system"
 	"configcenter/src/apimachinery/coreservice/topographics"
+	"configcenter/src/apimachinery/coreservice/transaction"
 	"configcenter/src/apimachinery/rest"
 	"configcenter/src/apimachinery/util"
 )
@@ -40,10 +48,18 @@ type CoreServiceClientInterface interface {
 	Host() host.HostClientInterface
 	Audit() auditlog.AuditClientInterface
 	Process() process.ProcessInterface
-	Cloud() cloudsync.CloudSyncClientInterface
+	Operation() operation.OperationClientInterface
 	Label() label.LabelInterface
-	Privilege() privilege.PrivilegeInterface
 	TopoGraphics() topographics.TopoGraphicsInterface
+	SetTemplate() settemplate.SetTemplateInterface
+	HostApplyRule() hostapplyrule.HostApplyRuleInterface
+	System() ccSystem.SystemClientInterface
+	Txn() transaction.Interface
+	Count() count.CountClientInterface
+	Cloud() cloud.CloudInterface
+	Auth() auth.AuthClientInterface
+	Common() common.CommonInterface
+	Event() event.EventClientInterface
 }
 
 func NewCoreServiceClient(c *util.Capability, version string) CoreServiceClientInterface {
@@ -87,20 +103,53 @@ func (c *coreService) Audit() auditlog.AuditClientInterface {
 
 func (c *coreService) Process() process.ProcessInterface {
 	return process.NewProcessInterfaceClient(c.restCli)
+
 }
 
-func (c *coreService) Cloud() cloudsync.CloudSyncClientInterface {
-	return cloudsync.NewCloudSyncClientInterface(c.restCli)
+func (c *coreService) Operation() operation.OperationClientInterface {
+	return operation.NewOperationClientInterface(c.restCli)
 }
 
 func (c *coreService) Label() label.LabelInterface {
 	return label.NewLabelInterfaceClient(c.restCli)
 }
 
-func (c *coreService) Privilege() privilege.PrivilegeInterface {
-	return privilege.NewPrivilegeInterface(c.restCli)
-}
-
 func (c *coreService) TopoGraphics() topographics.TopoGraphicsInterface {
 	return topographics.NewTopoGraphicsInterface(c.restCli)
+}
+
+func (c *coreService) System() ccSystem.SystemClientInterface {
+	return ccSystem.NewSystemClientInterface(c.restCli)
+}
+
+func (c *coreService) SetTemplate() settemplate.SetTemplateInterface {
+	return settemplate.NewSetTemplateInterfaceClient(c.restCli)
+}
+
+func (c *coreService) HostApplyRule() hostapplyrule.HostApplyRuleInterface {
+	return hostapplyrule.NewHostApplyRuleClient(c.restCli)
+}
+
+func (c *coreService) Txn() transaction.Interface {
+	return transaction.NewTxn(c.restCli)
+}
+
+func (c *coreService) Count() count.CountClientInterface {
+	return count.NewCountClientInterface(c.restCli)
+}
+
+func (c *coreService) Cloud() cloud.CloudInterface {
+	return cloud.NewCloudInterfaceClient(c.restCli)
+}
+
+func (c *coreService) Auth() auth.AuthClientInterface {
+	return auth.NewAuthClientInterface(c.restCli)
+}
+
+func (c *coreService) Common() common.CommonInterface {
+	return common.NewCommonInterfaceClient(c.restCli)
+}
+
+func (c *coreService) Event() event.EventClientInterface {
+	return event.NewEventClientInterface(c.restCli)
 }

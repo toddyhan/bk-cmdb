@@ -36,13 +36,17 @@
                 'mainLine',
                 'source',
                 'target',
+                'sourceInstances',
+                'targetInstances',
                 'associationTypes'
             ]),
             id () {
                 return parseInt(this.$route.params.id)
             },
             hasAssociation () {
-                return !!(this.source.length || this.target.length)
+                return [...this.sourceInstances, ...this.targetInstances].some(instance => {
+                    return !!(instance.children || []).length
+                })
             },
             list () {
                 try {
@@ -83,8 +87,10 @@
         watch: {
             list () {
                 this.$nextTick(() => {
-                    const [firstAssociationListTable] = this.$refs.associationListTable
-                    firstAssociationListTable && (firstAssociationListTable.expanded = true)
+                    if (this.$refs.associationListTable) {
+                        const [firstAssociationListTable] = this.$refs.associationListTable
+                        firstAssociationListTable && (firstAssociationListTable.expanded = true)
+                    }
                 })
             }
         },
@@ -95,6 +101,9 @@
                 this.$store.commit('hostDetails/setInstances', { type: 'source', instances: root.prev })
                 this.$store.commit('hostDetails/setInstances', { type: 'target', instances: root.next })
             })
+        },
+        beforeDestroy () {
+            bus.$off('association-change')
         },
         methods: {
             async getData () {
@@ -140,7 +149,7 @@
             },
             getAssociation (condition) {
                 return this.$store.dispatch('objectAssociation/searchObjectAssociation', {
-                    params: this.$injectMetadata({ condition }),
+                    params: { condition },
                     config: {
                         requestId: 'getAssociation'
                     }
@@ -165,7 +174,7 @@
                 const [root] = await this.$store.dispatch('objectRelation/getInstRelation', {
                     objId: 'host',
                     instId: this.id,
-                    params: this.$injectMetadata(),
+                    params: {},
                     config: {
                         requestId: 'getInstRelation'
                     }

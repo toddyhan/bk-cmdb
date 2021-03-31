@@ -14,65 +14,31 @@ package service
 
 import (
 	"context"
-	"net/http"
 
+	"configcenter/src/ac/extensions"
 	"configcenter/src/apimachinery/discovery"
-	"configcenter/src/auth/extensions"
 	"configcenter/src/common"
 	"configcenter/src/common/backbone"
 	"configcenter/src/common/errors"
-	"configcenter/src/common/language"
 	"configcenter/src/common/metadata"
 	"configcenter/src/common/metric"
 	"configcenter/src/common/rdapi"
 	"configcenter/src/common/types"
-	"configcenter/src/common/util"
 	"configcenter/src/scene_server/host_server/app/options"
 	"configcenter/src/scene_server/host_server/logics"
+	"configcenter/src/storage/dal/redis"
 
 	"github.com/emicklei/go-restful"
-	"gopkg.in/redis.v5"
 )
 
 type Service struct {
 	*options.Config
 	*backbone.Engine
 	disc        discovery.DiscoveryInterface
-	CacheDB     *redis.Client
+	CacheDB     redis.Client
 	AuthManager *extensions.AuthManager
-}
-
-type srvComm struct {
-	header        http.Header
-	rid           string
-	ccErr         errors.DefaultCCErrorIf
-	ccLang        language.DefaultCCLanguageIf
-	ctx           context.Context
-	ctxCancelFunc context.CancelFunc
-	user          string
-	ownerID       string
-	lgc           *logics.Logics
-}
-
-func (s *Service) newSrvComm(header http.Header) *srvComm {
-	rid := util.GetHTTPCCRequestID(header)
-	lang := util.GetLanguage(header)
-	user := util.GetUser(header)
-	ctx, cancel := s.Engine.CCCtx.WithCancel()
-	ctx = context.WithValue(ctx, common.ContextRequestIDField, rid)
-	ctx = context.WithValue(ctx, common.ContextRequestUserField, user)
-
-	return &srvComm{
-		header:        header,
-		rid:           rid,
-		ccErr:         s.CCErr.CreateDefaultCCErrorIf(lang),
-		ccLang:        s.Language.CreateDefaultCCLanguageIf(lang),
-		ctx:           ctx,
-		ctxCancelFunc: cancel,
-		user:          util.GetUser(header),
-		ownerID:       util.GetOwnerID(header),
-		lgc:           logics.NewLogics(s.Engine, header, s.CacheDB, s.AuthManager),
-	}
+	EnableTxn   bool
+	Logic       *logics.Logics
 }
 
 func (s *Service) WebService() *restful.Container {
@@ -85,90 +51,8 @@ func (s *Service) WebService() *restful.Container {
 	}
 	api.Path("/host/v3").Filter(s.Engine.Metric().RestfulMiddleWare).Filter(rdapi.AllGlobalFilter(getErrFunc)).Produces(restful.MIME_JSON)
 
-	api.Route(api.DELETE("/hosts/batch").To(s.DeleteHostBatchFromResourcePool))
-	api.Route(api.GET("/hosts/{bk_supplier_account}/{bk_host_id}").To(s.GetHostInstanceProperties))
-	api.Route(api.GET("/hosts/snapshot/{bk_host_id}").To(s.HostSnapInfo))
-	api.Route(api.POST("/hosts/add").To(s.AddHost))
-	// api.Route(api.POST("/host/add/agent").To(s.AddHostFromAgent))
-	api.Route(api.POST("/hosts/sync/new/host").To(s.NewHostSyncAppTopo))
-	api.Route(api.POST("hosts/favorites/search").To(s.GetHostFavourites))
-	api.Route(api.POST("hosts/favorites").To(s.AddHostFavourite))
-	api.Route(api.PUT("hosts/favorites/{id}").To(s.UpdateHostFavouriteByID))
-	api.Route(api.DELETE("hosts/favorites/{id}").To(s.DeleteHostFavouriteByID))
-	api.Route(api.PUT("/hosts/favorites/{id}/incr").To(s.IncrHostFavouritesCount))
-	api.Route(api.POST("/hosts/modules").To(s.TransferHostModule))
-	api.Route(api.POST("/hosts/modules/idle").To(s.MoveHost2EmptyModule))
-	api.Route(api.POST("/hosts/modules/fault").To(s.MoveHost2FaultModule))
-	api.Route(api.POST("/hosts/modules/resource").To(s.MoveHostToResourcePool))
-	api.Route(api.POST("/hosts/modules/resource/idle").To(s.AssignHostToApp))
-	api.Route(api.POST("/host/add/module").To(s.AssignHostToAppModule))
-	api.Route(api.POST("/usercustom").To(s.SaveUserCustom))
-	api.Route(api.POST("/usercustom/user/search").To(s.GetUserCustom))
-	api.Route(api.POST("/usercustom/default/search").To(s.GetDefaultCustom))
-	api.Route(api.POST("/hosts/search").To(s.SearchHost))
-	api.Route(api.POST("/hosts/search/asstdetail").To(s.SearchHostWithAsstDetail))
-	api.Route(api.PUT("/hosts/batch").To(s.UpdateHostBatch))
-	api.Route(api.PUT("/hosts/property/clone").To(s.CloneHostProperty))
-	api.Route(api.POST("/hosts/modules/idle/set").To(s.MoveSetHost2IdleModule))
-	// get host module relation in app
-	api.Route(api.POST("/hosts/modules/read").To(s.GetHostModuleRelation))
-	api.Route(api.POST("/host/topo/relation/read").To(s.GetAppHostTopoRelation))
-	// transfer host to other business
-	api.Route(api.POST("/hosts/modules/across/biz").To(s.TransferHostAcrossBusiness))
-	//  delete host from business, used for framework
-	api.Route(api.DELETE("/hosts/module/biz/delete").To(s.DeleteHostFromBusiness))
-
-	// next generation host search api
-	api.Route(api.POST("/hosts/list_hosts_without_app").To(s.ListHostsWithNoBiz))
-	api.Route(api.POST("/hosts/app/{appid}/list_hosts").To(s.ListBizHosts))
-
-	api.Route(api.POST("/userapi").To(s.AddUserCustomQuery))
-	api.Route(api.PUT("/userapi/{bk_biz_id}/{id}").To(s.UpdateUserCustomQuery))
-	api.Route(api.DELETE("/userapi/{bk_biz_id}/{id}").To(s.DeleteUserCustomQuery))
-	api.Route(api.POST("/userapi/search/{bk_biz_id}").To(s.GetUserCustomQuery))
-	api.Route(api.GET("/userapi/detail/{bk_biz_id}/{id}").To(s.GetUserCustomQueryDetail))
-	api.Route(api.GET("/userapi/data/{bk_biz_id}/{id}/{start}/{limit}").To(s.GetUserCustomQueryResult))
-
-	api.Route(api.POST("/host/lock").To(s.LockHost))
-	api.Route(api.DELETE("/host/lock").To(s.UnlockHost))
-	api.Route(api.POST("/host/lock/search").To(s.QueryHostLock))
-
-	api.Route(api.GET("/host/getHostListByAppidAndField/{" + common.BKAppIDField + "}/{field}").To(s.getHostListByAppIDAndField))
-	api.Route(api.PUT("/openapi/host/{" + common.BKAppIDField + "}").To(s.UpdateHost))
-	api.Route(api.PUT("/host/updateHostByAppID/{appid}").To(s.UpdateHostByAppID))
-	api.Route(api.POST("/gethostlistbyip").To(s.HostSearchByIP))
-	api.Route(api.POST("/gethostlistbyconds").To(s.HostSearchByConds))
-	api.Route(api.POST("/getmodulehostlist").To(s.HostSearchByModuleID))
-	api.Route(api.POST("/getsethostlist").To(s.HostSearchBySetID))
-	api.Route(api.POST("/getapphostlist").To(s.HostSearchByAppID))
-	api.Route(api.POST("/gethostsbyproperty").To(s.HostSearchByProperty))
-	api.Route(api.POST("/getIPAndProxyByCompany").To(s.GetIPAndProxyByCompany))
-	api.Route(api.PUT("/openapi/updatecustomproperty").To(s.UpdateCustomProperty))
-	api.Route(api.POST("/openapi/host/getHostAppByCompanyId").To(s.GetHostAppByCompanyId))
-	api.Route(api.DELETE("/openapi/host/delhostinapp").To(s.DelHostInApp))
-	api.Route(api.POST("/openapi/host/getGitServerIp").To(s.GetGitServerIp))
-	api.Route(api.GET("/plat").To(s.GetPlat))
-	api.Route(api.POST("/plat").To(s.CreatePlat))
-	api.Route(api.DELETE("/plat/{bk_cloud_id}").To(s.DelPlat))
-
-	api.Route(api.POST("/findmany/modulehost").To(s.FindModuleHost))
-
-	// cloud sync
-	api.Route(api.POST("/hosts/cloud/add").To(s.AddCloudTask))
-	api.Route(api.DELETE("/hosts/cloud/delete/{taskID}").To(s.DeleteCloudTask))
-	api.Route(api.POST("/hosts/cloud/search").To(s.SearchCloudTask))
-	api.Route(api.PUT("/hosts/cloud/update").To(s.UpdateCloudTask))
-	api.Route(api.POST("/hosts/cloud/startSync").To(s.StartCloudSync))
-	api.Route(api.POST("/hosts/cloud/resourceConfirm").To(s.CreateResourceConfirm))
-	api.Route(api.POST("/hosts/cloud/searchConfirm").To(s.SearchConfirm))
-	api.Route(api.POST("/hosts/cloud/confirmHistory/add").To(s.AddConfirmHistory))
-	api.Route(api.POST("/hosts/cloud/confirmHistory/search").To(s.SearchConfirmHistory))
-	api.Route(api.POST("/hosts/cloud/accountSearch").To(s.SearchAccount))
-	api.Route(api.POST("/hosts/cloud/syncHistory").To(s.SearchCloudSyncHistory))
-
-	api.Route(api.POST("/findmany/cloudarea").To(s.FindManyCloudArea))
-	api.Route(api.POST("/create/cloudarea").To(s.CreatePlat))
-	api.Route(api.DELETE("/delete/cloudarea/{bk_cloud_id}").To(s.DelPlat))
+	// init service actions
+	s.initService(api)
 
 	container.Add(api)
 
@@ -198,6 +82,10 @@ func (s *Service) Healthz(req *restful.Request, resp *restful.Response) {
 	}
 	meta.Items = append(meta.Items, coreSrv)
 
+	// redis
+	redisItem := metric.NewHealthItem(types.CCFunctionalityRedis, s.CacheDB.Ping(context.Background()).Err())
+	meta.Items = append(meta.Items, redisItem)
+
 	for _, item := range meta.Items {
 		if item.IsHealthy == false {
 			meta.IsHealthy = false
@@ -221,16 +109,4 @@ func (s *Service) Healthz(req *restful.Request, resp *restful.Response) {
 	}
 	resp.Header().Set("Content-Type", "application/json")
 	_ = resp.WriteEntity(answer)
-}
-
-func (s *Service) InitBackground() {
-	header := make(http.Header, 0)
-	if "" == util.GetOwnerID(header) {
-		header.Set(common.BKHTTPOwnerID, common.BKSuperOwnerID)
-		header.Set(common.BKHTTPHeaderUser, common.BKProcInstanceOpUser)
-	}
-	s.CacheDB.FlushDb()
-
-	srvData := s.newSrvComm(header)
-	go srvData.lgc.TimerTriggerCheckStatus(srvData.ctx)
 }

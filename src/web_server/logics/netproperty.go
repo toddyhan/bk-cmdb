@@ -112,7 +112,6 @@ func BuildNetPropertyExcelTemplate(header http.Header, defLang language.DefaultC
 	fields := GetNetPropertyField(defLang)
 
 	blog.V(5).Infof("[Build NetProperty Excel Template]  fields count:%d, rid: %s", len(fields), rid)
-
 	productExcelHealer(ctx, fields, nil, sheet, defLang)
 
 	if err = file.Save(filename); nil != err {

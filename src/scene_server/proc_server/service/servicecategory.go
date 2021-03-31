@@ -50,19 +50,15 @@ func (ps *ProcServer) ListServiceCategory(ctx *rest.Contexts) {
 
 func (ps *ProcServer) listServiceCategory(ctx *rest.Contexts, withStatistics bool) (*metadata.MultipleServiceCategoryWithStatistics, errors.CCErrorCoder) {
 	rid := ctx.Kit.Rid
-	meta := new(metadata.MetadataWrapper)
-	if err := ctx.DecodeInto(meta); err != nil {
+	biz := &struct {
+		BizID int64 `json:"bk_biz_id"`
+	}{}
+	if err := ctx.DecodeInto(biz); err != nil {
 		return nil, ctx.Kit.CCError.CCError(common.CCErrCommJSONUnmarshalFailed)
 	}
 
-	bizID, err := metadata.BizIDFromMetadata(meta.Metadata)
-	if err != nil {
-		blog.Errorf("get service category list failed, parse biz id from metadata failed, metadata: %+v, err: %+v, rid: %s", meta.Metadata, err, rid)
-		return nil, ctx.Kit.CCError.CCErrorf(common.CCErrCommHTTPInputInvalid, common.MetadataField)
-	}
-
 	listOption := metadata.ListServiceCategoriesOption{
-		BusinessID:     bizID,
+		BusinessID:     biz.BizID,
 		WithStatistics: withStatistics,
 	}
 	/*
@@ -98,33 +94,34 @@ func (ps *ProcServer) listServiceCategory(ctx *rest.Contexts, withStatistics boo
 }
 
 func (ps *ProcServer) CreateServiceCategory(ctx *rest.Contexts) {
-	input := new(metadata.ServiceCategory)
+	input := new(metadata.CreateServiceCategoryOption)
 	if err := ctx.DecodeInto(input); err != nil {
 		ctx.RespAutoError(err)
 		return
 	}
 
-	_, err := metadata.BizIDFromMetadata(input.Metadata)
-	if err != nil {
-		ctx.RespErrorCodeOnly(common.CCErrCommHTTPInputInvalid, "create service category, but get business id failed, err: %v", err)
-		return
+	newCategory := &metadata.ServiceCategory{
+		BizID:    input.BizID,
+		Name:     input.Name,
+		ParentID: input.ParentID,
 	}
 
-	category, err := ps.CoreAPI.CoreService().Process().CreateServiceCategory(ctx.Kit.Ctx, ctx.Kit.Header, input)
-	if err != nil {
-		ctx.RespWithError(err, common.CCErrCommHTTPDoRequestFailed, "create service category failed, err: %v", err)
-		return
-	}
-
-	/*
-		if err := ps.AuthManager.RegisterServiceCategory(ctx.Kit.Ctx, ctx.Kit.Header, *category); err != nil {
-			blog.Errorf("create service category success, but register to iam failed, err: %+v, rid: %s", err, ctx.Kit.Rid)
-			err := ctx.Kit.CCError.CCError(common.CCErrCommRegistResourceToIAMFailed)
-			ctx.RespAutoError(err)
-			return
+	var category *metadata.ServiceCategory
+	txnErr := ps.Engine.CoreAPI.CoreService().Txn().AutoRunTxn(ctx.Kit.Ctx, ps.EnableTxn, ctx.Kit.Header, func() error {
+		var err error
+		category, err = ps.CoreAPI.CoreService().Process().CreateServiceCategory(ctx.Kit.Ctx, ctx.Kit.Header, newCategory)
+		if err != nil {
+			blog.Errorf("create service category failed, err: %v", err)
+			return err
 		}
-	*/
 
+		return nil
+	})
+
+	if txnErr != nil {
+		ctx.RespAutoError(txnErr)
+		return
+	}
 	ctx.RespEntity(category)
 }
 
@@ -135,27 +132,22 @@ func (ps *ProcServer) UpdateServiceCategory(ctx *rest.Contexts) {
 		return
 	}
 
-	_, err := metadata.BizIDFromMetadata(input.Metadata)
-	if err != nil {
-		ctx.RespErrorCodeOnly(common.CCErrCommHTTPInputInvalid, "update service category, but get business id failed, err: %v", err)
-		return
-	}
-
-	category, err := ps.CoreAPI.CoreService().Process().UpdateServiceCategory(ctx.Kit.Ctx, ctx.Kit.Header, input.ID, input)
-	if err != nil {
-		ctx.RespWithError(err, common.CCErrCommHTTPDoRequestFailed, "update service category failed, err: %v", err)
-		return
-	}
-
-	/*
-		if err := ps.AuthManager.UpdateRegisteredServiceCategory(ctx.Kit.Ctx, ctx.Kit.Header, *category); err != nil {
-			blog.Errorf("update service category success, but update register to iam failed, err: %+v, rid: %s", err, ctx.Kit.Rid)
-			err := ctx.Kit.CCError.CCError(common.CCErrCommRegistResourceToIAMFailed)
-			ctx.RespAutoError(err)
-			return
+	var category *metadata.ServiceCategory
+	txnErr := ps.Engine.CoreAPI.CoreService().Txn().AutoRunTxn(ctx.Kit.Ctx, ps.EnableTxn, ctx.Kit.Header, func() error {
+		var err error
+		category, err = ps.CoreAPI.CoreService().Process().UpdateServiceCategory(ctx.Kit.Ctx, ctx.Kit.Header, input.ID, input)
+		if err != nil {
+			blog.Errorf("update service category failed, err: %v", err)
+			return ctx.Kit.CCError.CCError(common.CCErrCommHTTPDoRequestFailed)
 		}
-	*/
 
+		return nil
+	})
+
+	if txnErr != nil {
+		ctx.RespAutoError(txnErr)
+		return
+	}
 	ctx.RespEntity(category)
 }
 
@@ -166,39 +158,30 @@ func (ps *ProcServer) DeleteServiceCategory(ctx *rest.Contexts) {
 		return
 	}
 
-	bizID, err := metadata.BizIDFromMetadata(input.Metadata)
-	if err != nil {
-		ctx.RespErrorCodeOnly(common.CCErrCommHTTPInputInvalid, "delete service category, but get business id failed, err: %v", err)
-		return
-	}
-	_ = bizID
+	txnErr := ps.Engine.CoreAPI.CoreService().Txn().AutoRunTxn(ctx.Kit.Ctx, ps.EnableTxn, ctx.Kit.Header, func() error {
+		/*
+			// generate iam resource
+			iamResources, err := ps.AuthManager.MakeResourcesByServiceCategoryIDs(ctx.Kit.Ctx, ctx.Kit.Header, meta.Delete, bizID, input.ID)
+			if err != nil {
+				blog.Errorf("make iam resource by service category failed, err: %+v, rid: %s", err, ctx.Kit.Rid)
+				err := ctx.Kit.CCError.CCError(common.CCErrCommRegistResourceToIAMFailed)
+				ctx.RespAutoError(err)
+				return
+			}
+		*/
 
-	/*
-		// generate iam resource
-		iamResources, err := ps.AuthManager.MakeResourcesByServiceCategoryIDs(ctx.Kit.Ctx, ctx.Kit.Header, meta.Delete, bizID, input.ID)
+		err := ps.CoreAPI.CoreService().Process().DeleteServiceCategory(ctx.Kit.Ctx, ctx.Kit.Header, input.ID)
 		if err != nil {
-			blog.Errorf("make iam resource by service category failed, err: %+v, rid: %s", err, ctx.Kit.Rid)
-			err := ctx.Kit.CCError.CCError(common.CCErrCommRegistResourceToIAMFailed)
-			ctx.RespAutoError(err)
-			return
+			blog.Errorf("delete service category failed, err: %v", err)
+			return ctx.Kit.CCError.CCError(common.CCErrCommHTTPDoRequestFailed)
 		}
-	*/
 
-	err = ps.CoreAPI.CoreService().Process().DeleteServiceCategory(ctx.Kit.Ctx, ctx.Kit.Header, input.ID)
-	if err != nil {
-		ctx.RespWithError(err, common.CCErrCommHTTPDoRequestFailed, "delete service category failed, err: %v", err)
+		return nil
+	})
+
+	if txnErr != nil {
+		ctx.RespAutoError(txnErr)
 		return
 	}
-
-	/*
-		// deregister iam resource
-		if err := ps.AuthManager.Authorize.DeregisterResource(ctx.Kit.Ctx, iamResources...); err != nil {
-			blog.Errorf("delete service category success, but deregister from iam failed, err: %+v, rid: %s", err, ctx.Kit.Rid)
-			err := ctx.Kit.CCError.CCError(common.CCErrCommUnRegistResourceToIAMFailed)
-			ctx.RespAutoError(err)
-			return
-		}
-	*/
-
 	ctx.RespEntity(nil)
 }

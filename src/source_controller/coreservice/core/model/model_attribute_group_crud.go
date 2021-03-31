@@ -14,56 +14,57 @@ package model
 
 import (
 	"configcenter/src/common"
+	"configcenter/src/common/http/rest"
 	"configcenter/src/common/mapstr"
 	"configcenter/src/common/metadata"
 	"configcenter/src/common/universalsql"
-	"configcenter/src/source_controller/coreservice/core"
+	"configcenter/src/storage/driver/mongodb"
 )
 
-func (g *modelAttributeGroup) count(ctx core.ContextParams, cond universalsql.Condition) (cnt int64, err error) {
+func (g *modelAttributeGroup) count(kit *rest.Kit, cond universalsql.Condition) (count int64, err error) {
 
-	icnt, err := g.dbProxy.Table(common.BKTableNamePropertyGroup).Find(cond.ToMapStr()).Count(ctx)
-	return int64(icnt), err
+	iCount, err := mongodb.Client().Table(common.BKTableNamePropertyGroup).Find(cond.ToMapStr()).Count(kit.Ctx)
+	return int64(iCount), err
 }
 
-func (g *modelAttributeGroup) save(ctx core.ContextParams, group metadata.Group) (uint64, error) {
+func (g *modelAttributeGroup) save(kit *rest.Kit, group metadata.Group) (uint64, error) {
 
-	id, err := g.dbProxy.NextSequence(ctx, common.BKTableNamePropertyGroup)
+	id, err := mongodb.Client().NextSequence(kit.Ctx, common.BKTableNamePropertyGroup)
 	if err != nil {
-		return id, ctx.Error.New(common.CCErrObjectDBOpErrno, err.Error())
+		return id, kit.CCError.New(common.CCErrObjectDBOpErrno, err.Error())
 	}
 
 	group.ID = int64(id)
-	group.OwnerID = ctx.SupplierAccount
+	group.OwnerID = kit.SupplierAccount
 
-	err = g.dbProxy.Table(common.BKTableNamePropertyGroup).Insert(ctx, group)
+	err = mongodb.Client().Table(common.BKTableNamePropertyGroup).Insert(kit.Ctx, group)
 	return id, err
 }
 
-func (g *modelAttributeGroup) delete(ctx core.ContextParams, cond universalsql.Condition) (uint64, error) {
+func (g *modelAttributeGroup) delete(kit *rest.Kit, cond universalsql.Condition) (uint64, error) {
 
-	cnt, err := g.dbProxy.Table(common.BKTableNamePropertyGroup).Find(cond.ToMapStr()).Count(ctx)
+	cnt, err := mongodb.Client().Table(common.BKTableNamePropertyGroup).Find(cond.ToMapStr()).Count(kit.Ctx)
 	if nil != err {
 		return cnt, err
 	}
 
-	err = g.dbProxy.Table(common.BKTableNamePropertyGroup).Delete(ctx, cond.ToMapStr())
+	err = mongodb.Client().Table(common.BKTableNamePropertyGroup).Delete(kit.Ctx, cond.ToMapStr())
 	return cnt, err
 }
 
-func (g *modelAttributeGroup) search(ctx core.ContextParams, cond universalsql.Condition) ([]metadata.Group, error) {
+func (g *modelAttributeGroup) search(kit *rest.Kit, cond universalsql.Condition) ([]metadata.Group, error) {
 
-	dataResult := []metadata.Group{}
-	err := g.dbProxy.Table(common.BKTableNamePropertyGroup).Find(cond.ToMapStr()).All(ctx, &dataResult)
+	dataResult := make([]metadata.Group, 0)
+	err := mongodb.Client().Table(common.BKTableNamePropertyGroup).Find(cond.ToMapStr()).All(kit.Ctx, &dataResult)
 	return dataResult, err
 }
 
-func (g *modelAttributeGroup) update(ctx core.ContextParams, data mapstr.MapStr, cond universalsql.Condition) (uint64, error) {
+func (g *modelAttributeGroup) update(kit *rest.Kit, data mapstr.MapStr, cond universalsql.Condition) (uint64, error) {
 
-	cnt, err := g.dbProxy.Table(common.BKTableNamePropertyGroup).Find(cond.ToMapStr()).Count(ctx)
+	cnt, err := mongodb.Client().Table(common.BKTableNamePropertyGroup).Find(cond.ToMapStr()).Count(kit.Ctx)
 	if nil != err {
 		return cnt, err
 	}
-	err = g.dbProxy.Table(common.BKTableNamePropertyGroup).Update(ctx, cond.ToMapStr(), data)
+	err = mongodb.Client().Table(common.BKTableNamePropertyGroup).Update(kit.Ctx, cond.ToMapStr(), data)
 	return cnt, err
 }

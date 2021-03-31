@@ -13,8 +13,6 @@
 package logics
 
 import (
-	"encoding/json"
-
 	"configcenter/src/common"
 	"configcenter/src/common/blog"
 	"configcenter/src/common/errors"
@@ -23,7 +21,7 @@ import (
 	"configcenter/src/common/metadata"
 )
 
-func (lgc *Logic) ListProcessInstanceWithIDs(kit *rest.Kit, procIDs []int64) ([]metadata.Process, error) {
+func (lgc *Logic) ListProcessInstanceWithIDs(kit *rest.Kit, procIDs []int64) ([]metadata.Process, errors.CCErrorCoder) {
 	reqParam := &metadata.QueryCondition{
 		Condition: mapstr.MapStr(map[string]interface{}{
 			common.BKProcessIDField: map[string]interface{}{
@@ -34,19 +32,19 @@ func (lgc *Logic) ListProcessInstanceWithIDs(kit *rest.Kit, procIDs []int64) ([]
 	ret, err := lgc.CoreAPI.CoreService().Instance().ReadInstance(kit.Ctx, kit.Header, common.BKInnerObjIDProc, reqParam)
 	if nil != err {
 		blog.Errorf("rid: %s list process instance with procID: %d failed, err: %v", kit.Rid, procIDs, err)
-		return nil, kit.CCError.Error(common.CCErrCommHTTPDoRequestFailed)
+		return nil, kit.CCError.CCError(common.CCErrCommHTTPDoRequestFailed)
 	}
 
 	if !ret.Result {
 		blog.Errorf("rid: %s list process instance with procID: %d failed, err: %v", kit.Rid, procIDs, ret.ErrMsg)
-		return nil, kit.CCError.New(ret.Code, ret.ErrMsg)
+		return nil, errors.New(ret.Code, ret.ErrMsg)
 	}
 
 	processes := make([]metadata.Process, 0)
 	for _, p := range ret.Data.Info {
 		process := new(metadata.Process)
 		if err := p.MarshalJSONInto(process); err != nil {
-			return nil, kit.CCError.Error(common.CCErrCommJSONUnmarshalFailed)
+			return nil, kit.CCError.CCError(common.CCErrCommJSONUnmarshalFailed)
 		}
 		processes = append(processes, *process)
 	}
@@ -63,12 +61,12 @@ func (lgc *Logic) GetProcessInstanceWithID(kit *rest.Kit, procID int64) (*metada
 	reqParam.Condition = condition
 	ret, err := lgc.CoreAPI.CoreService().Instance().ReadInstance(kit.Ctx, kit.Header, common.BKInnerObjIDProc, reqParam)
 	if nil != err {
-		blog.Errorf("rid: %s get process instance with procID: %d failed, err: %v", kit.Rid, procID, err)
+		blog.Errorf("GetProcessInstanceWithID failed, get process instance with procID: %d failed, err: %v, rid: %s", procID, err, kit.Rid)
 		return nil, kit.CCError.CCError(common.CCErrCommHTTPDoRequestFailed)
 	}
 
 	if !ret.Result {
-		blog.Errorf("rid: %s get process instance with procID: %d failed, err: %v", kit.Rid, procID, ret.ErrMsg)
+		blog.Errorf("GetProcessInstanceWithID failed, get process instance with procID: %d failed, err: %v, rid: %s", procID, ret.ErrMsg, kit.Rid)
 		return nil, errors.New(ret.Code, ret.ErrMsg)
 	}
 
@@ -78,33 +76,37 @@ func (lgc *Logic) GetProcessInstanceWithID(kit *rest.Kit, procID int64) (*metada
 	}
 
 	if err := ret.Data.Info[0].MarshalJSONInto(process); err != nil {
-		blog.Errorf("GetProcessInstanceWithID fai, rid: %s", err, kit.Rid)
+		blog.Errorf("GetProcessInstanceWithID failed err: %s, rid: %s", err.Error(), kit.Rid)
 		return nil, kit.CCError.CCError(common.CCErrCommJSONUnmarshalFailed)
 	}
 
 	return process, nil
 }
 
-func (lgc *Logic) UpdateProcessInstance(kit *rest.Kit, procID int64, info mapstr.MapStr) error {
+func (lgc *Logic) UpdateProcessInstance(kit *rest.Kit, procID int64, info mapstr.MapStr) errors.CCErrorCoder {
+	delete(info, common.BkSupplierAccount)
 	option := metadata.UpdateOption{
 		Data: info,
 		Condition: map[string]interface{}{
 			common.BKProcessIDField: procID,
 		},
 	}
+
 	result, err := lgc.CoreAPI.CoreService().Instance().UpdateInstance(kit.Ctx, kit.Header, common.BKInnerObjIDProc, &option)
 	if err != nil {
-		return err
+		blog.ErrorJSON("UpdateProcessInstance failed, UpdateInstance http request failed, option: %s, err: %s, rid: %s", option, err.Error(), kit.Rid)
+		return kit.CCError.CCError(common.CCErrCommHTTPDoRequestFailed)
 	}
 
 	if !result.Result {
-		blog.Errorf("rid: %s, update process instance: %d failed, err: %s", kit.Rid, procID, result.ErrMsg)
-		return kit.CCError.New(result.Code, result.ErrMsg)
+		blog.ErrorJSON("UpdateProcessInstance failed, UpdateInstance failed, option: %s, response: %s, rid: %s", option, result, kit.Rid)
+		return errors.New(result.Code, result.ErrMsg)
 	}
 	return nil
 }
 
-func (lgc *Logic) DeleteProcessInstance(kit *rest.Kit, procID int64) error {
+func (lgc *Logic) DeleteProcessInstance(kit *rest.Kit, procID int64) errors.CCErrorCoder {
+	rid := kit.Rid
 	option := metadata.DeleteOption{
 		Condition: map[string]interface{}{
 			common.BKProcessIDField: procID,
@@ -113,18 +115,19 @@ func (lgc *Logic) DeleteProcessInstance(kit *rest.Kit, procID int64) error {
 
 	result, err := lgc.CoreAPI.CoreService().Instance().DeleteInstance(kit.Ctx, kit.Header, common.BKInnerObjIDProc, &option)
 	if err != nil {
-		return err
+		blog.ErrorJSON("DeleteProcessInstance failed, DeleteInstance failed, option: %s, err: %s, rid: %s", option, err.Error(), rid)
+		return kit.CCError.CCError(common.CCErrCommHTTPDoRequestFailed)
 	}
 
 	if !result.Result {
 		blog.Errorf("rid: %s, delete process instance: %d failed, err: %s", kit.Rid, procID, result.ErrMsg)
-		return kit.CCError.Error(result.Code)
+		return errors.New(result.Code, result.ErrMsg)
 	}
 
 	return nil
 }
 
-func (lgc *Logic) DeleteProcessInstanceBatch(kit *rest.Kit, procIDs []int64) error {
+func (lgc *Logic) DeleteProcessInstanceBatch(kit *rest.Kit, procIDs []int64) errors.CCErrorCoder {
 	if procIDs == nil {
 		return nil
 	}
@@ -137,28 +140,20 @@ func (lgc *Logic) DeleteProcessInstanceBatch(kit *rest.Kit, procIDs []int64) err
 	}
 	result, err := lgc.CoreAPI.CoreService().Instance().DeleteInstance(kit.Ctx, kit.Header, common.BKInnerObjIDProc, &option)
 	if err != nil {
-		return err
+		return kit.CCError.CCError(common.CCErrCommHTTPDoRequestFailed)
 	}
 
 	if !result.Result {
 		blog.Errorf("rid: %s, delete process instance: %d failed, err: %s", kit.Rid, procIDs, result.ErrMsg)
-		return kit.CCError.Error(result.Code)
+		return result.CCError()
 	}
 
 	return nil
 }
 
-func (lgc *Logic) CreateProcessInstance(kit *rest.Kit, process *metadata.Process) (int64, errors.CCErrorCoder) {
-	processBytes, err := json.Marshal(process)
-	if err != nil {
-		return 0, kit.CCError.CCError(common.CCErrCommJsonEncode)
-	}
-	mData := mapstr.MapStr{}
-	if err := json.Unmarshal(processBytes, &mData); nil != err && 0 != len(processBytes) {
-		return 0, kit.CCError.CCError(common.CCErrCommJsonDecode)
-	}
+func (lgc *Logic) CreateProcessInstance(kit *rest.Kit, processData map[string]interface{}) (int64, errors.CCErrorCoder) {
 	inputParam := metadata.CreateModelInstance{
-		Data: mData,
+		Data: processData,
 	}
 	result, err := lgc.CoreAPI.CoreService().Instance().CreateInstance(kit.Ctx, kit.Header, common.BKInnerObjIDProc, &inputParam)
 	if err != nil {
@@ -167,7 +162,7 @@ func (lgc *Logic) CreateProcessInstance(kit *rest.Kit, process *metadata.Process
 	}
 
 	if !result.Result {
-		blog.Errorf("rid: %s, create process instance: %+v failed, err: %s", kit.Rid, process, result.ErrMsg)
+		blog.Errorf("rid: %s, create process instance: %+v failed, err: %s", kit.Rid, processData, result.ErrMsg)
 		return 0, errors.New(result.Code, result.ErrMsg)
 	}
 
@@ -176,7 +171,9 @@ func (lgc *Logic) CreateProcessInstance(kit *rest.Kit, process *metadata.Process
 
 // it works to find the different attribute value between the process instance and it's bounded process template.
 // return with the changed attribute's details.
-func (lgc *Logic) DiffWithProcessTemplate(t *metadata.ProcessProperty, i *metadata.Process, attrMap map[string]metadata.Attribute) []metadata.ProcessChangedAttribute {
+func (lgc *Logic) DiffWithProcessTemplate(t *metadata.ProcessProperty, i *metadata.Process, host map[string]interface{},
+	attrMap map[string]metadata.Attribute) []metadata.ProcessChangedAttribute {
+
 	changes := make([]metadata.ProcessChangedAttribute, 0)
 	if t == nil || i == nil {
 		return changes
@@ -264,18 +261,19 @@ func (lgc *Logic) DiffWithProcessTemplate(t *metadata.ProcessProperty, i *metada
 		}
 	}
 
-	if metadata.IsAsDefaultValue(t.BindIP.AsDefaultValue) {
-		if (t.BindIP.Value == nil && i.BindIP != nil) ||
-			(t.BindIP.Value != nil && i.BindIP == nil) ||
-			(t.BindIP.Value != nil && i.BindIP != nil && t.BindIP.Value.IP() != *i.BindIP) {
+	if metadata.IsAsDefaultValue(t.BindInfo.AsDefaultValue) {
+		newBindInfo, change := t.BindInfo.DiffWithProcessTemplate(i.BindInfo, host)
+		if change {
+
 			changes = append(changes, metadata.ProcessChangedAttribute{
-				ID:                    attrMap["bind_ip"].ID,
-				PropertyID:            "bind_ip",
-				PropertyName:          attrMap["bind_ip"].PropertyName,
-				PropertyValue:         i.BindIP,
-				TemplatePropertyValue: t.BindIP.Value.IP(),
+				ID:                    attrMap[common.BKProcBindInfo].ID,
+				PropertyID:            common.BKProcBindInfo,
+				PropertyName:          attrMap[common.BKProcBindInfo].PropertyName,
+				PropertyValue:         i.BindInfo,
+				TemplatePropertyValue: newBindInfo,
 			})
 		}
+
 	}
 
 	if metadata.IsAsDefaultValue(t.Priority.AsDefaultValue) {
@@ -320,20 +318,6 @@ func (lgc *Logic) DiffWithProcessTemplate(t *metadata.ProcessProperty, i *metada
 		}
 	}
 
-	if metadata.IsAsDefaultValue(t.Port.AsDefaultValue) {
-		if (t.Port.Value == nil && i.Port != nil) ||
-			(t.Port.Value != nil && i.Port == nil) ||
-			(t.Port.Value != nil && i.Port != nil && *t.Port.Value != *i.Port) {
-			changes = append(changes, metadata.ProcessChangedAttribute{
-				ID:                    attrMap["port"].ID,
-				PropertyID:            "port",
-				PropertyName:          attrMap["port"].PropertyName,
-				PropertyValue:         i.Port,
-				TemplatePropertyValue: t.Port,
-			})
-		}
-	}
-
 	if metadata.IsAsDefaultValue(t.PidFile.AsDefaultValue) {
 		if (t.PidFile.Value == nil && i.PidFile != nil) ||
 			(t.PidFile.Value != nil && i.PidFile == nil) ||
@@ -362,16 +346,16 @@ func (lgc *Logic) DiffWithProcessTemplate(t *metadata.ProcessProperty, i *metada
 		}
 	}
 
-	if metadata.IsAsDefaultValue(t.AutoTimeGapSeconds.AsDefaultValue) {
-		if (t.AutoTimeGapSeconds.Value == nil && i.AutoTimeGap != nil) ||
-			(t.AutoTimeGapSeconds.Value != nil && i.AutoTimeGap == nil) ||
-			(t.AutoTimeGapSeconds.Value != nil && i.AutoTimeGap != nil && *t.AutoTimeGapSeconds.Value != *i.AutoTimeGap) {
+	if metadata.IsAsDefaultValue(t.StartCheckSecs.AsDefaultValue) {
+		if (t.StartCheckSecs.Value == nil && i.StartCheckSecs != nil) ||
+			(t.StartCheckSecs.Value != nil && i.StartCheckSecs == nil) ||
+			(t.StartCheckSecs.Value != nil && i.StartCheckSecs != nil && *t.StartCheckSecs.Value != *i.StartCheckSecs) {
 			changes = append(changes, metadata.ProcessChangedAttribute{
-				ID:                    attrMap["auto_time_gap"].ID,
-				PropertyID:            "auto_time_gap",
-				PropertyName:          attrMap["auto_time_gap"].PropertyName,
-				PropertyValue:         i.AutoTimeGap,
-				TemplatePropertyValue: t.AutoTimeGapSeconds,
+				ID:                    attrMap["bk_start_check_secs"].ID,
+				PropertyID:            "bk_start_check_secs",
+				PropertyName:          attrMap["bk_start_check_secs"].PropertyName,
+				PropertyValue:         i.StartCheckSecs,
+				TemplatePropertyValue: t.StartCheckSecs,
 			})
 		}
 	}
@@ -386,20 +370,6 @@ func (lgc *Logic) DiffWithProcessTemplate(t *metadata.ProcessProperty, i *metada
 				PropertyName:          attrMap["start_cmd"].PropertyName,
 				PropertyValue:         i.StartCmd,
 				TemplatePropertyValue: t.StartCmd,
-			})
-		}
-	}
-
-	if metadata.IsAsDefaultValue(t.FuncID.AsDefaultValue) {
-		if (t.FuncID.Value == nil && i.FuncID != nil) ||
-			(t.FuncID.Value != nil && i.FuncID == nil) ||
-			(t.FuncID.Value != nil && i.FuncID != nil && *t.FuncID.Value != *i.FuncID) {
-			changes = append(changes, metadata.ProcessChangedAttribute{
-				ID:                    attrMap["bk_func_id"].ID,
-				PropertyID:            "bk_func_id",
-				PropertyName:          attrMap["bk_func_id"].PropertyName,
-				PropertyValue:         i.FuncID,
-				TemplatePropertyValue: t.FuncID,
 			})
 		}
 	}
@@ -428,20 +398,6 @@ func (lgc *Logic) DiffWithProcessTemplate(t *metadata.ProcessProperty, i *metada
 				PropertyName:          attrMap["timeout"].PropertyName,
 				PropertyValue:         i.TimeoutSeconds,
 				TemplatePropertyValue: t.TimeoutSeconds,
-			})
-		}
-	}
-
-	if metadata.IsAsDefaultValue(t.Protocol.AsDefaultValue) {
-		if (t.Protocol.Value == nil && i.Protocol != nil) ||
-			(t.Protocol.Value != nil && i.Protocol == nil) ||
-			(t.Protocol.Value != nil && i.Protocol != nil && *t.Protocol.Value != *i.Protocol) {
-			changes = append(changes, metadata.ProcessChangedAttribute{
-				ID:                    attrMap["protocol"].ID,
-				PropertyID:            "protocol",
-				PropertyName:          attrMap["protocol"].PropertyName,
-				PropertyValue:         i.Protocol,
-				TemplatePropertyValue: t.Protocol,
 			})
 		}
 	}

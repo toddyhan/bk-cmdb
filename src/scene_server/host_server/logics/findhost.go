@@ -13,32 +13,34 @@
 package logics
 
 import (
-	"context"
-
 	"configcenter/src/common"
+	"configcenter/src/common/http/rest"
 	"configcenter/src/common/mapstr"
 	"configcenter/src/common/metadata"
 )
 
-func (lgc *Logics) FindHostByModuleIDs(ctx context.Context, data *metadata.HostModuleFind, isDetail bool) (*metadata.SearchHost, error) {
+func (lgc *Logics) FindHostByModuleIDs(kit *rest.Kit, data *metadata.HostModuleFind, isDetail bool) (*metadata.SearchHost, error) {
 	retHostInfo := &metadata.SearchHost{
 		Info: make([]mapstr.MapStr, 0),
 	}
 	hostSearchParam := new(metadata.HostCommonSearch)
+	hostSearchParam.Page = data.Page
 
+	hostFindCond := metadata.SearchCondition{ObjectID: common.BKInnerObjIDHost, Condition: []metadata.ConditionItem{}, Fields: data.Fields}
 	condItem := metadata.ConditionItem{Field: common.BKModuleIDField, Operator: common.BKDBIN, Value: data.ModuleIDS}
 	moduleFindCond := metadata.SearchCondition{ObjectID: common.BKInnerObjIDModule, Condition: []metadata.ConditionItem{condItem}, Fields: []string{}}
 	setFindCond := metadata.SearchCondition{ObjectID: common.BKInnerObjIDSet, Condition: []metadata.ConditionItem{}, Fields: []string{}}
 	bizFindCond := metadata.SearchCondition{ObjectID: common.BKInnerObjIDApp, Condition: []metadata.ConditionItem{}, Fields: []string{}}
-	bizID, err := data.Metadata.Label.GetBusinessID()
-	if nil != err {
-		return retHostInfo, err
+	bizID := data.AppID
+	var err error
+	if bizID == 0 {
+		return retHostInfo, kit.CCError.Errorf(common.CCErrCommParamsIsInvalid, common.BKAppIDField)
 	}
 	hostSearchParam.AppID = bizID
 
-	hostSearchParam.Condition = []metadata.SearchCondition{moduleFindCond, setFindCond, bizFindCond}
+	hostSearchParam.Condition = []metadata.SearchCondition{hostFindCond, moduleFindCond, setFindCond, bizFindCond}
 
-	findHostInst := NewSearchHost(ctx, lgc, hostSearchParam)
+	findHostInst := NewSearchHost(kit, lgc, hostSearchParam)
 	findHostInst.ParseCondition()
 
 	err = findHostInst.SearchHostByConds()

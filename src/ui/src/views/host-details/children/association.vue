@@ -2,23 +2,23 @@
     <div class="association">
         <div class="options clearfix">
             <div class="fl" v-show="activeView === viewName.list">
-                <span class="inline-block-middle mr10" v-if="hasAssociation"
-                    v-cursor="{
-                        active: !$isAuthorized(updateAuth),
-                        auth: [updateAuth]
-                    }">
-                    <bk-button theme="primary" class="options-button"
-                        :disabled="!$isAuthorized(updateAuth)"
+                <cmdb-auth class="inline-block-middle mr10"
+                    v-if="hasAssociation"
+                    :auth="HOST_AUTH.U_HOST">
+                    <bk-button slot-scope="{ disabled }"
+                        theme="primary"
+                        class="options-button"
+                        :disabled="disabled"
                         @click="showCreate = true">
                         {{$t('新增关联')}}
                     </bk-button>
-                </span>
+                </cmdb-auth>
                 <span class="inline-block-middle mr10" v-else v-bk-tooltips="$t('当前模型暂未定义可用关联')">
                     <bk-button theme="primary" class="options-button" disabled>
                         {{$t('新增关联')}}
                     </bk-button>
                 </span>
-                <bk-checkbox v-if="hasAssociation"
+                <bk-checkbox v-if="hasInstance"
                     :size="16" class="options-checkbox"
                     @change="handleExpandAll">
                     <span class="checkbox-label">{{$t('全部展开')}}</span>
@@ -36,10 +36,16 @@
                     @click="toggleView(viewName.graphics)">
                     {{$t('拓扑')}}
                 </bk-button>
+                <bk-button class="options-full-screen"
+                    v-show="activeView === viewName.graphics"
+                    v-bk-tooltips="$t('全屏')"
+                    @click="handleFullScreen">
+                    <i class="icon-cc-resize-full"></i>
+                </bk-button>
             </div>
         </div>
         <div class="association-view">
-            <component :is="activeView"></component>
+            <component ref="dynamicComponent" :is="activeView"></component>
         </div>
         <bk-sideslider v-transfer-dom :is-show.sync="showCreate" :width="800" :title="$t('新增关联')">
             <cmdb-host-association-create slot="content" v-if="showCreate"></cmdb-host-association-create>
@@ -49,9 +55,10 @@
 
 <script>
     import cmdbHostAssociationList from './association-list.vue'
-    import cmdbHostAssociationGraphics from './association-graphics.vue'
+    import cmdbHostAssociationGraphics from './association-graphics.new.vue'
     import cmdbHostAssociationCreate from './association-create.vue'
-    import { MENU_RESOURCE_HOST_DETAILS } from '@/dictionary/menu-symbol'
+    import { mapGetters } from 'vuex'
+    import authMixin from '../mixin-auth'
     export default {
         name: 'cmdb-host-association',
         components: {
@@ -59,6 +66,7 @@
             cmdbHostAssociationGraphics,
             cmdbHostAssociationCreate
         },
+        mixins: [authMixin],
         data () {
             return {
                 viewName: {
@@ -70,16 +78,19 @@
             }
         },
         computed: {
-            updateAuth () {
-                const isResourceHost = this.$route.name === MENU_RESOURCE_HOST_DETAILS
-                if (isResourceHost) {
-                    return this.$OPERATION.U_RESOURCE_HOST
-                }
-                return this.$OPERATION.U_HOST
-            },
+            ...mapGetters('hostDetails', [
+                'source',
+                'target',
+                'sourceInstances',
+                'targetInstances'
+            ]),
             hasAssociation () {
-                const association = this.$store.state.hostDetails.association
-                return !!(association.source.length || association.target.length)
+                return !!(this.source.length || this.target.length)
+            },
+            hasInstance () {
+                return [...this.sourceInstances, ...this.targetInstances].some(instance => {
+                    return !!(instance.children || []).length
+                })
             }
         },
         beforeDestroy () {
@@ -91,6 +102,9 @@
             },
             handleExpandAll (expandAll) {
                 this.$store.commit('hostDetails/toggleExpandAll', expandAll)
+            },
+            handleFullScreen () {
+                this.$refs.dynamicComponent.toggleFullScreen(true)
             }
         }
     }
@@ -122,6 +136,13 @@
             .checkbox-label {
                 padding-left: 4px;
             }
+        }
+        .options-full-screen {
+            width: 32px;
+            height: 32px;
+            padding: 0;
+            text-align: center;
+            margin-left: 10px;
         }
     }
 </style>

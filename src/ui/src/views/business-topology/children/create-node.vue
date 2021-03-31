@@ -16,7 +16,8 @@
                     {{property['bk_property_name']}}
                 </label>
                 <component v-if="!['longchar'].includes(property['bk_property_type'])" :is="`cmdb-form-${property['bk_property_type']}`"
-                    style="display: block;"
+                    style="display: flex;"
+                    :unit="property['unit']"
                     :data-vv-name="property['bk_property_id']"
                     :data-vv-as="property['bk_property_name']"
                     :options="property.option || []"
@@ -41,7 +42,7 @@
             <bk-button theme="primary"
                 :disabled="$loading() || errors.any()"
                 @click="handleSave">
-                {{$t('保存')}}
+                {{$t('提交')}}
             </bk-button>
             <bk-button theme="default" @click="handleCancel">{{$t('取消')}}</bk-button>
         </div>
@@ -72,11 +73,9 @@
                 return nodePath.map(node => node.data.bk_inst_name).join('-')
             },
             sortedProperties () {
-                const sortedProperties = this.properties.filter(property => !['singleasst', 'multiasst'].includes(property['bk_property_type']))
-                sortedProperties.sort((propertyA, propertyB) => {
+                return this.properties.sort((propertyA, propertyB) => {
                     return propertyA['bk_property_index'] - propertyB['bk_property_index']
                 })
-                return sortedProperties
             },
             title () {
                 return this.nextModelId === 'set' ? this.$t('新建集群') : this.$t('新建节点')
@@ -98,40 +97,16 @@
                 this.values = this.$tools.getInstFormValues(this.properties, {})
             },
             getValidateRules (property) {
-                const rules = {}
-                const {
-                    bk_property_type: propertyType,
-                    option,
-                    isrequired
-                } = property
-                if (isrequired) {
-                    rules.required = true
-                }
-                if (option) {
-                    if (propertyType === 'int') {
-                        if (option.hasOwnProperty('min') && !['', null, undefined].includes(option.min)) {
-                            rules['min_value'] = option.min
-                        }
-                        if (option.hasOwnProperty('max') && !['', null, undefined].includes(option.max)) {
-                            rules['max_value'] = option.max
-                        }
-                    } else if (['singlechar', 'longchar'].includes(propertyType)) {
-                        rules['regex'] = option
-                    }
-                }
-                if (['singlechar', 'longchar'].includes(propertyType)) {
-                    rules[propertyType] = true
-                    rules.length = propertyType === 'singlechar' ? 256 : 2000
-                }
-                if (propertyType === 'int') {
-                    rules['numeric'] = true
+                const rules = this.$tools.getValidateRules(property)
+                if (property.bk_property_id === 'bk_inst_name') {
+                    rules.businessTopoInstNames = true
                 }
                 return rules
             },
             handleSave () {
                 this.$validator.validateAll().then(isValid => {
                     if (isValid) {
-                        this.$emit('submit', this.values)
+                        this.$emit('submit', this.$tools.formatValues(this.values, this.properties))
                     }
                 })
             },

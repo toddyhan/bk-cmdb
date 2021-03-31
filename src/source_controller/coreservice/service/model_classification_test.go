@@ -16,6 +16,7 @@ import (
 	"encoding/json"
 	"testing"
 
+	"configcenter/src/common"
 	"configcenter/src/common/http/httpclient"
 	"configcenter/src/common/mapstr"
 	"configcenter/src/common/metadata"
@@ -29,10 +30,7 @@ func setManyClassification(t *testing.T, client *httpclient.HttpClient, classifi
 	// set many
 	classItems := metadata.SetManyModelClassification{
 		Data: []metadata.Classification{
-			metadata.Classification{
-				Metadata: metadata.Metadata{
-					Label: metadata.Label{metadata.LabelBusinessID: "test_biz"},
-				},
+			{
 				ClassificationID: classificationID,
 			},
 		},
@@ -75,9 +73,6 @@ func setOneClassification(t *testing.T, client *httpclient.HttpClient, classific
 	// create one
 	classItems := metadata.SetOneModelClassification{
 		Data: metadata.Classification{
-			Metadata: metadata.Metadata{
-				Label: metadata.Label{metadata.LabelBusinessID: "test_biz"},
-			},
 			ClassificationID: classificationID,
 		},
 	}
@@ -119,10 +114,7 @@ func createManyClassification(t *testing.T, client *httpclient.HttpClient, class
 	// create many
 	classItems := metadata.CreateManyModelClassifiaction{
 		Data: []metadata.Classification{
-			metadata.Classification{
-				Metadata: metadata.Metadata{
-					Label: metadata.Label{metadata.LabelBusinessID: "test_biz"},
-				},
+			{
 				ClassificationID: classificationID,
 			},
 		},
@@ -167,9 +159,6 @@ func createOneClassification(t *testing.T, client *httpclient.HttpClient, classi
 	// create one
 	classItems := metadata.CreateOneModelClassification{
 		Data: metadata.Classification{
-			Metadata: metadata.Metadata{
-				Label: metadata.Label{metadata.LabelBusinessID: "test_biz"},
-			},
 			ClassificationID: classificationID,
 		},
 	}
@@ -200,11 +189,8 @@ func queryClassification(t *testing.T, client *httpclient.HttpClient, classifica
 	cond.Element(mongo.Field(metadata.ClassFieldClassificationID).Eq(classificationID))
 	queryCond := metadata.QueryCondition{
 		Fields: []string{},
-		SortArr: []metadata.SearchSort{
-			metadata.SearchSort{
-				IsDsc: true,
-				Field: metadata.ClassFieldClassificationID,
-			},
+		Page: metadata.BasePage{
+			Sort: "-" + metadata.ClassFieldClassificationID,
 		},
 		Condition: cond.ToMapStr(),
 	}
@@ -237,7 +223,7 @@ func updateClassification(t *testing.T, client *httpclient.HttpClient, classific
 
 	cond := mongo.NewCondition()
 	cond.Element(mongo.Field(metadata.ClassFieldClassificationID).Eq(classificationID))
-	cond.Element(mongo.Field(metadata.ClassFieldClassificationSupplierAccount).Eq("0"))
+	cond.Element(mongo.Field(common.BKOwnerIDField).Eq("0"))
 	queryCond := metadata.UpdateOption{
 		Data: mapstr.MapStr{
 			metadata.ClassFieldClassificationName: "update_" + classificationID,

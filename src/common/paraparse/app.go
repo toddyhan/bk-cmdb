@@ -14,13 +14,12 @@ package params
 
 import (
 	"fmt"
-	"reflect"
 	"regexp"
 	"strings"
 
 	"configcenter/src/common"
+	"configcenter/src/common/mapstr"
 	"configcenter/src/common/metadata"
-	"configcenter/src/common/util"
 )
 
 // common search struct
@@ -28,36 +27,57 @@ type SearchParams struct {
 	Condition map[string]interface{} `json:"condition"`
 	Page      map[string]interface{} `json:"page,omitempty"`
 	Fields    []string               `json:"fields,omitempty"`
-	Native    int                    `json:"native,omitempty"`
-}
-
-// common result struct
-type CommonResult struct {
-	Result  bool        `json:"result"`
-	Code    int         `json:"int"`
-	Message interface{} `json:"message"`
-	Data    interface{} `json:"data"`
 }
 
 func ParseCommonParams(input []metadata.ConditionItem, output map[string]interface{}) error {
 	for _, i := range input {
 		switch i.Operator {
 		case common.BKDBEQ:
-			if reflect.TypeOf(i.Value).Kind() == reflect.String {
+			output[i.Field] = i.Value
+			/*if reflect.TypeOf(i.Value).Kind() == reflect.String {
 				output[i.Field] = SpecialCharChange(i.Value.(string))
 			} else {
-				output[i.Field] = i.Value
-			}
+			output[i.Field] = i.Value
+			}*/
 		case common.BKDBLIKE:
 			regex := make(map[string]interface{})
 			regex[common.BKDBLIKE] = i.Value
+			// Case insensitivity to match upper and lower cases
+			regex[common.BKDBOPTIONS] = "i"
 			output[i.Field] = regex
+
+		case common.BKDBMULTIPLELike:
+			multi, ok := i.Value.([]interface{})
+			if !ok {
+				return fmt.Errorf("operator %s only support for string array", common.BKDBMULTIPLELike)
+			}
+			fields := make([]interface{}, 0)
+			for _, m := range multi {
+				mstr, ok := m.(string)
+				if !ok {
+					return fmt.Errorf("operator %s only support for string array", common.BKDBMULTIPLELike)
+				}
+				fields = append(fields, mapstr.MapStr{i.Field: mapstr.MapStr{common.BKDBLIKE: mstr, common.BKDBOPTIONS: "i"}})
+			}
+			if len(fields) != 0 {
+				// only when the fields is none empty, then the fields is valid.
+				// a or operator can not have a empty value in mongodb.
+				output[common.BKDBOR] = fields
+			}
+		case common.BKDBIN:
+			d := make(map[string]interface{})
+			if i.Value == nil {
+				d[i.Operator] = make([]interface{}, 0)
+			} else {
+				d[i.Operator] = i.Value
+			}
+			output[i.Field] = d
 		default:
 			d := make(map[string]interface{})
 			if i.Value == nil {
 				d[i.Operator] = i.Value
-			} else if reflect.TypeOf(i.Value).Kind() == reflect.String {
-				d[i.Operator] = SpecialCharChange(i.Value.(string))
+				/*} else if reflect.TypeOf(i.Value).Kind() == reflect.String {
+				d[i.Operator] = SpecialCharChange(i.Value.(string))*/
 			} else {
 				d[i.Operator] = i.Value
 			}
@@ -69,7 +89,7 @@ func ParseCommonParams(input []metadata.ConditionItem, output map[string]interfa
 
 func SpecialCharChange(targetStr string) string {
 
-	re := regexp.MustCompile(`([\^\$\(\)\*\+\?\.\\\|\[\]\{\}])`)
+	re := regexp.MustCompile("[.()\\\\|\\[\\]\\*{}\\^\\$\\?]")
 	delItems := re.FindAllString(targetStr, -1)
 	tmp := map[string]struct{}{}
 	for _, target := range delItems {
@@ -81,28 +101,4 @@ func SpecialCharChange(targetStr string) string {
 	}
 
 	return targetStr
-}
-
-// ParseAppSearchParams parse search app parameter. input user parameter, userFieldArr Fields in the business are user-type fields
-func ParseAppSearchParams(input map[string]interface{}, userFieldArr []string) map[string]interface{} {
-	output := make(map[string]interface{})
-	for i, j := range input {
-		objtype := reflect.TypeOf(j)
-		switch objtype.Kind() {
-		case reflect.String:
-			d := make(map[string]interface{})
-			targetStr := j.(string)
-			if util.InStrArr(userFieldArr, i) {
-				// field type is user, use regex
-				userName := SpecialCharChange(targetStr)
-				d[common.BKDBLIKE] = fmt.Sprintf("^%s,|,%s,|,%s$|^%s$", userName, userName, userName, userName)
-			} else {
-				d[common.BKDBLIKE] = SpecialCharChange(targetStr)
-			}
-			output[i] = d
-		default:
-			output[i] = j
-		}
-	}
-	return output
 }

@@ -15,7 +15,6 @@ package app
 import (
 	"context"
 	"fmt"
-	"os"
 	"time"
 
 	"configcenter/src/common"
@@ -23,32 +22,31 @@ import (
 	cc "configcenter/src/common/backbone/configcenter"
 	"configcenter/src/common/blog"
 	"configcenter/src/common/types"
-	"configcenter/src/common/version"
 	"configcenter/src/source_controller/coreservice/app/options"
 	coresvr "configcenter/src/source_controller/coreservice/service"
-	"configcenter/src/storage/dal/mongo"
-	"configcenter/src/storage/dal/redis"
+	"configcenter/src/storage/driver/mongodb"
+	"configcenter/src/storage/driver/redis"
 )
 
 // CoreServer the core server
 type CoreServer struct {
 	Core    *backbone.Engine
-	Config  options.Config
+	Config  *options.Config
 	Service coresvr.CoreServiceInterface
 }
 
 func (t *CoreServer) onCoreServiceConfigUpdate(previous, current cc.ProcessConfig) {
+	if t.Config == nil {
+		t.Config = new(options.Config)
+	}
 
-	t.Config.Mongo = mongo.ParseConfigFromKV("mongodb", current.ConfigMap)
-	t.Config.Redis = redis.ParseConfigFromKV("redis", current.ConfigMap)
-
-	blog.V(3).Infof("the new cfg:%#v the origin cfg:%#v", t.Config, current.ConfigMap)
+	blog.V(3).Infof("the new cfg:%#v the origin cfg:%#v", t.Config, string(current.ConfigData))
 
 }
 
 // Run main function
-func Run(ctx context.Context, op *options.ServerOption) error {
-	svrInfo, err := newServerInfo(op)
+func Run(ctx context.Context, cancel context.CancelFunc, op *options.ServerOption) error {
+	svrInfo, err := types.NewServerInfo(op.ServConf)
 	if err != nil {
 		return fmt.Errorf("wrap server info failed, err: %v", err)
 	}
@@ -71,8 +69,7 @@ func Run(ctx context.Context, op *options.ServerOption) error {
 
 	var configReady bool
 	for sleepCnt := 0; sleepCnt < common.APPConfigWaitTime; sleepCnt++ {
-		// redis not found
-		if "" == coreSvr.Config.Redis.Address {
+		if nil == coreSvr.Config {
 			time.Sleep(time.Second)
 			continue
 		}
@@ -87,11 +84,18 @@ func Run(ctx context.Context, op *options.ServerOption) error {
 	}
 
 	coreSvr.Core = engine
-	err = coreService.SetConfig(coreSvr.Config, engine, engine.CCErr, engine.Language)
+
+	if err := initResource(coreSvr); err != nil {
+		return err
+	}
+
+	err = coreService.SetConfig(*coreSvr.Config, engine, engine.CCErr, engine.Language)
 	if err != nil {
 		return err
 	}
-	if err := backbone.StartServer(ctx, engine, coreService.WebService(), true); err != nil {
+
+	err = backbone.StartServer(ctx, cancel, engine, coreService.WebService(), true)
+	if err != nil {
 		return err
 	}
 	select {
@@ -100,29 +104,34 @@ func Run(ctx context.Context, op *options.ServerOption) error {
 	return nil
 }
 
-func newServerInfo(op *options.ServerOption) (*types.ServerInfo, error) {
-	ip, err := op.ServConf.GetAddress()
+func initResource(coreSvr *CoreServer) error {
+	var err error
+	coreSvr.Config.Mongo, err = coreSvr.Core.WithMongo()
 	if err != nil {
-		return nil, err
+		return err
+	}
+	coreSvr.Config.Redis, err = coreSvr.Core.WithRedis()
+	if err != nil {
+		return err
 	}
 
-	port, err := op.ServConf.GetPort()
-	if err != nil {
-		return nil, err
+	dbErr := mongodb.InitClient("", &coreSvr.Config.Mongo)
+	if dbErr != nil {
+		blog.Errorf("failed to connect the db server, error info is %s", dbErr.Error())
+		return dbErr
 	}
 
-	hostname, err := os.Hostname()
-	if err != nil {
-		return nil, err
+	cacheRrr := redis.InitClient("redis", &coreSvr.Config.Redis)
+	if cacheRrr != nil {
+		blog.Errorf("new redis client failed, err: %v", cacheRrr)
+		return cacheRrr
 	}
 
-	info := &types.ServerInfo{
-		IP:       ip,
-		Port:     port,
-		HostName: hostname,
-		Scheme:   "http",
-		Version:  version.GetVersion(),
-		Pid:      os.Getpid(),
+	initErr := mongodb.Client().InitTxnManager(redis.Client())
+	if initErr != nil {
+		blog.Errorf("failed to init txn manager, error info is %v", initErr)
+		return initErr
 	}
-	return info, nil
+
+	return nil
 }

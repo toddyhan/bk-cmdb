@@ -198,7 +198,7 @@
             </ul>
         </div>
         <footer class="footer">
-            <bk-button theme="primary" :loading="$loading('savePush')" class="btn" @click="save">{{$t('保存')}}</bk-button>
+            <bk-button theme="primary" :loading="$loading('savePush')" class="btn" @click="save">{{type === 'create' ? $t('提交') : $t('保存')}}</bk-button>
             <bk-button theme="default" class="btn vice-btn" @click="cancel">{{$t('取消')}}</bk-button>
         </footer>
         <v-pop
@@ -423,7 +423,7 @@
                     name: this.$t('主机业务'),
                     children: [{
                         id: 'resource',
-                        name: this.$t('资源池')
+                        name: this.$t('主机池')
                     }, {
                         id: 'host',
                         name: this.$t('主机')
@@ -649,11 +649,12 @@
                     width: 32px;
                     text-align: center;
                     margin-right: -6px;
-                    font-size: 12px;
+                    font-size: 20px;
                     font-weight: bold;
                     transition: all .5s;
+                    vertical-align: top;
                     &.up{
-                        transform: rotate(180deg);
+                        transform: rotate(-90deg);
                     }
                 }
                 ul{

@@ -2,43 +2,46 @@
     <div class="process-wrapper">
         <bk-table class="process-table"
             v-bkloading="{ isLoading: loading }"
-            :data="showList"
-            :max-height="$APP.height - 300">
-            <bk-table-column v-for="column in table.header"
+            :data="showList">
+            <bk-table-column v-for="column in header"
                 :key="column.id"
                 :prop="column.id"
-                :label="column.name">
+                :label="column.name"
+                show-overflow-tooltip>
                 <template slot-scope="{ row }">
-                    <span v-if="column.id === 'bind_ip'">{{row[column.id] | ipText}}</span>
-                    <span v-else>{{row[column.id] || '--'}}</span>
+                    <cmdb-property-value
+                        v-if="column.id !== 'bind_info'"
+                        :show-on="'cell'"
+                        :value="row[column.id]"
+                        :property="column.property">
+                    </cmdb-property-value>
+                    <process-bind-info-value v-else
+                        :value="row[column.id]"
+                        :property="column.property">
+                    </process-bind-info-value>
                 </template>
             </bk-table-column>
-            <bk-table-column :label="$t('操作')">
-                <template slot-scope="{ row }">
-                    <span
-                        v-cursor="{
-                            active: !$isAuthorized($OPERATION.U_SERVICE_TEMPLATE),
-                            auth: [$OPERATION.U_SERVICE_TEMPLATE]
-                        }">
-                        <bk-button class="mr10"
-                            :disabled="!$isAuthorized($OPERATION.U_SERVICE_TEMPLATE)"
+            <bk-table-column :label="$t('操作')" prop="operation" v-if="showOperation">
+                <template slot-scope="{ row, $index }">
+                    <cmdb-auth :auth="auth">
+                        <bk-button slot-scope="{ disabled }"
+                            class="mr10"
+                            theme="primary"
+                            :disabled="disabled"
                             :text="true"
-                            @click.stop="handleEdite(row['originData'])">
+                            @click.stop="handleEdit(row._original_, $index)">
                             {{$t('编辑')}}
                         </bk-button>
-                    </span>
-                    <span
-                        v-cursor="{
-                            active: !$isAuthorized($OPERATION.D_SERVICE_TEMPLATE),
-                            auth: [$OPERATION.D_SERVICE_TEMPLATE]
-                        }">
-                        <bk-button
-                            :disabled="!$isAuthorized($OPERATION.D_SERVICE_TEMPLATE)"
+                    </cmdb-auth>
+                    <cmdb-auth :auth="auth">
+                        <bk-button slot-scope="{ disabled }"
+                            theme="primary"
+                            :disabled="disabled"
                             :text="true"
-                            @click.stop="handleDelete(row['originData'])">
+                            @click.stop="handleDelete(row._original_, $index)">
                             {{$t('删除')}}
                         </bk-button>
-                    </span>
+                    </cmdb-auth>
                 </template>
             </bk-table-column>
         </bk-table>
@@ -46,17 +49,17 @@
 </template>
 
 <script>
+    import { processTableHeader } from '@/dictionary/table-header'
+    import ProcessBindInfoValue from '@/components/service/process-bind-info-value'
     export default {
-        filters: {
-            ipText (value) {
-                if (['1', '2'].includes(value)) {
-                    const ip = ['127.0.0.1', '0.0.0.0']
-                    return ip[value - 1]
-                }
-                return value || '--'
-            }
+        components: {
+            ProcessBindInfoValue
         },
         props: {
+            auth: {
+                type: Object,
+                default: () => ({})
+            },
             list: {
                 type: Array,
                 default: () => {
@@ -72,44 +75,26 @@
             loading: {
                 type: Boolean,
                 default: false
-            }
+            },
+            showOperation: Boolean
         },
         data () {
-            return {
-                table: {
-                    header: [
-                        {
-                            id: 'bk_func_name',
-                            name: this.$t('进程名称'),
-                            sortable: false
-                        }, {
-                            id: 'bk_process_name',
-                            name: this.$t('进程别名'),
-                            sortable: false
-                        }, {
-                            id: 'bind_ip',
-                            name: this.$t('监听IP'),
-                            sortable: false
-                        }, {
-                            id: 'port',
-                            name: this.$t('端口'),
-                            sortable: false
-                        }, {
-                            id: 'work_path',
-                            name: this.$t('启动路径'),
-                            sortable: false
-                        }, {
-                            id: 'user',
-                            name: this.$t('启动用户'),
-                            sortable: false
-                        }
-                    ]
-                }
-            }
+            return {}
         },
         computed: {
+            header () {
+                const header = processTableHeader.map(id => {
+                    const property = this.properties.find(property => property.bk_property_id === id) || {}
+                    return {
+                        id: property.bk_property_id,
+                        name: this.$tools.getHeaderPropertyName(property),
+                        property
+                    }
+                })
+                return header
+            },
             showList () {
-                let list = this.list.map(template => {
+                const list = this.list.map(template => {
                     const result = {}
                     Object.keys(template).map(key => {
                         const type = typeof template[key]
@@ -119,19 +104,19 @@
                             result[key] = template[key]
                         }
                     })
-                    result['originData'] = template
+                    result._original_ = template
                     return result
                 })
-                list = this.$tools.flattenList(this.properties, list).sort((prev, next) => prev.process_id - next.process_id)
+                list.sort((prev, next) => prev.process_id - next.process_id)
                 return list
             }
         },
         methods: {
-            handleEdite (process) {
-                this.$emit('on-edit', process)
+            handleEdit (process, index) {
+                this.$emit('on-edit', process, index)
             },
-            handleDelete (process) {
-                this.$emit('on-delete', process)
+            handleDelete (process, index) {
+                this.$emit('on-delete', process, index)
             }
         }
     }

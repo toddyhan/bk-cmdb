@@ -66,7 +66,8 @@ type AttributeWrapper struct {
 
 // UpdateGroupCondition update group condition struct
 type UpdateGroupCondition struct {
-	Condition struct {
+	ModelBizID int64 `json:"bk_biz_id"`
+	Condition  struct {
 		ID int64 `field:"id" json:"id,omitempty"`
 	} `json:"condition"`
 
@@ -116,8 +117,7 @@ type QueryObjectClassificationResult struct {
 // ClassificationWithObject classification with object
 type ClassificationWithObject struct {
 	Classification `json:",inline"`
-	Objects        []Object            `json:"bk_objects"`
-	AsstObjects    map[string][]Object `json:"bk_asst_objects"`
+	Objects        []Object `json:"bk_objects"`
 }
 
 // QueryObjectClassificationWithObjectsResult query the object classification with objects result

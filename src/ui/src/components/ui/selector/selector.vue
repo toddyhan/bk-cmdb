@@ -5,7 +5,10 @@
         :searchable="searchable"
         :clearable="allowClear"
         :disabled="disabled"
-        :font-size="fontSize">
+        :loading="loading"
+        :font-size="fontSize"
+        :popover-options="popoverOptions"
+        :readonly="readonly">
         <bk-option-group v-for="(group, index) in list"
             :key="index"
             :name="group[displayKey]">
@@ -13,6 +16,7 @@
                 :key="option[settingKey]"
                 :id="option[settingKey]"
                 :name="option[displayKey]">
+                <slot v-bind="option" />
             </bk-option>
         </bk-option-group>
     </bk-select>
@@ -22,12 +26,16 @@
         :searchable="searchable"
         :clearable="allowClear"
         :disabled="disabled"
-        :font-size="fontSize">
+        :loading="loading"
+        :font-size="fontSize"
+        :popover-options="popoverOptions"
+        :readonly="readonly">
         <bk-option
             v-for="option in list"
             :key="option[settingKey]"
             :id="option[settingKey]"
             :name="option[displayKey]">
+            <slot v-bind="option" />
         </bk-option>
     </bk-select>
 </template>
@@ -80,8 +88,18 @@
             },
             fontSize: {
                 type: String,
-                default: '12px'
-            }
+                default: 'medium'
+            },
+            searchable: {
+                type: Boolean,
+                default: false
+            },
+            loading: Boolean,
+            popoverOptions: {
+                type: Object,
+                default: () => ({})
+            },
+            readonly: Boolean
         },
         data () {
             return {
@@ -89,17 +107,6 @@
             }
         },
         computed: {
-            searchable () {
-                if (this.hasChildren) {
-                    let list = []
-                    this.list.forEach(group => {
-                        list = [...list, ...group.children]
-                    })
-                    return list.length > 7
-                } else {
-                    return this.list.length > 7
-                }
-            },
             selectedOption () {
                 return this.list.find(option => option[this.settingKey] === this.selected)
             }

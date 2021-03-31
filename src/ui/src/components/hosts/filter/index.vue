@@ -7,8 +7,8 @@
         :width="350"
         :on-show="handleShow"
         :on-hide="handleHide"
+        :z-index="1001"
         :tippy-options="{
-            zIndex: 1001,
             interactive: true,
             hideOnClick: false,
             onShown: checkIsScrolling
@@ -23,7 +23,7 @@
         </icon-button>
         <section class="filter-content" slot="content"
             :style="{
-                height: $APP.height - 200 + 'px'
+                height: (sectionHeight ? sectionHeight : ($APP.height - 200)) + 'px'
             }">
             <h2 class="filter-title">
                 {{$t('高级筛选')}}
@@ -32,7 +32,7 @@
             <div class="filter-scroller" ref="scroller">
                 <div class="filter-group" style="padding: 0;">
                     <label class="filter-label">IP</label>
-                    <bk-input type="textarea" v-model="ip.text" :rows="4" :placeholder="$t('请输入IP')"></bk-input>
+                    <bk-input type="textarea" v-model="ip.text" :rows="4" :placeholder="$t('请输入IP，多个IP请使用换行分隔')"></bk-input>
                 </div>
                 <div class="filter-group checkbox-group">
                     <bk-checkbox class="filter-checkbox"
@@ -49,19 +49,20 @@
                 </div>
                 <div class="filter-group"
                     v-for="(filterItem, index) in filterCondition"
-                    :key="index">
+                    :key="filterItem.bk_property_id">
                     <label class="filter-label">{{getFilterLabel(filterItem)}}</label>
                     <div class="filter-condition">
                         <filter-operator class="filter-operator"
-                            v-if="!['date', 'time'].includes(filterItem.bk_property_type)"
+                            v-if="!['date', 'time', 'category'].includes(filterItem.bk_property_type)"
                             v-model="filterItem.operator"
                             :type="getOperatorType(filterItem)">
                         </filter-operator>
-                        <cmdb-form-enum class="filter-value"
-                            v-if="filterItem.bk_property_type === 'enum'"
+                        <component class="filter-value"
+                            v-if="['enum', 'list'].includes(filterItem.bk_property_type)"
+                            :is="`cmdb-form-${filterItem.bk_property_type}`"
                             :options="filterItem.option || []"
                             v-model="filterItem.value">
-                        </cmdb-form-enum>
+                        </component>
                         <cmdb-form-bool-input class="filter-value"
                             v-else-if="filterItem.bk_property_type === 'bool'"
                             v-model="filterItem.value">
@@ -74,12 +75,23 @@
                             v-else-if="['date', 'time'].includes(filterItem.bk_property_type)"
                             v-model="filterItem.value">
                         </cmdb-form-date-range>
+                        <cmdb-cloud-selector
+                            v-else-if="filterItem.bk_property_id === 'bk_cloud_id'"
+                            class="filter-value"
+                            v-model="filterItem.value">
+                        </cmdb-cloud-selector>
+                        <cmdb-service-category
+                            v-else-if="filterItem.bk_property_id === 'service_category_id'"
+                            class="filter-value"
+                            v-model="filterItem.value">
+                        </cmdb-service-category>
                         <component class="filter-value"
                             v-else
                             :is="`cmdb-form-${filterItem.bk_property_type}`"
+                            :unit="filterItem.unit"
                             v-model="filterItem.value">
                         </component>
-                        <i class="bk-icon icon-close" @click.stop="handleDeteleFilter(filterItem)"></i>
+                        <i class="bk-icon icon-close" @click.stop="handleDeleteFilter(filterItem)"></i>
                     </div>
                 </div>
                 <div class="filter-add">
@@ -105,18 +117,26 @@
                             theme="light"
                             trigger="manual"
                             :width="280"
+                            :z-index="1002"
                             :tippy-options="{
-                                zIndex: 1002,
                                 interactive: true,
-                                hideOnClick: false
+                                hideOnClick: false,
+                                onShown: focusCollectionName,
+                                onHidden: clearCollectionName
                             }">
                             <bk-button theme="default" @click="handleCreateCollection">{{$t('收藏此条件')}}</bk-button>
                             <section class="collection" slot="content">
                                 <label class="collection-title">{{$t('收藏此条件')}}</label>
                                 <bk-input class="collection-name"
+                                    ref="collectionName"
                                     :placeholder="$t('请填写名称')"
-                                    v-model="collectionName">
+                                    :data-vv-as="$t('名称')"
+                                    data-vv-name="collectionName"
+                                    v-model="collectionName"
+                                    v-validate="'required|length:256'"
+                                    @enter="handleSaveCollection">
                                 </bk-input>
+                                <p class="collection-error" v-if="errors.has('collectionName')">{{errors.first('collectionName')}}</p>
                                 <div class="collection-options">
                                     <bk-button
                                         theme="primary"
@@ -136,7 +156,7 @@
                     </div>
                 </template>
                 <template v-else>
-                    <bk-button theme="primary" @click="handleSearch">{{$t('查询')}}</bk-button>
+                    <bk-button theme="primary" class="mr5" @click="handleSearch">{{$t('查询')}}</bk-button>
                     <bk-button theme="default" @click="handleReset">{{$t('清空')}}</bk-button>
                 </template>
             </div>
@@ -149,7 +169,10 @@
     import filterOperator from './_filter-field-operator.vue'
     import propertySelector from './filter-property-selector.vue'
     import { mapState, mapGetters } from 'vuex'
-    import { MENU_BUSINESS_HOST_MANAGEMENT } from '@/dictionary/menu-symbol'
+    import { MENU_BUSINESS_HOST_AND_SERVICE } from '@/dictionary/menu-symbol'
+    import Bus from '@/utils/bus'
+    import RouterQuery from '@/router/query'
+    import { getIPPayload } from '@/utils/host'
     export default {
         components: {
             filterOperator,
@@ -161,6 +184,10 @@
                 default () {
                     return {}
                 }
+            },
+            sectionHeight: {
+                type: Number,
+                default: null
             }
         },
         data () {
@@ -168,7 +195,7 @@
                 text: '',
                 inner: true,
                 outer: true,
-                exact: false
+                exact: true
             }
             return {
                 ip: {
@@ -184,7 +211,7 @@
             }
         },
         computed: {
-            ...mapState('hosts', ['filterList', 'filterIP', 'collection']),
+            ...mapState('hosts', ['filterList', 'collection', 'shouldInjectAsset']),
             ...mapGetters('hosts', ['isCollection']),
             isFilterActive () {
                 const hasIP = !!this.ip.text.replace(/\n|;|；|,|，/g, '').length
@@ -197,69 +224,89 @@
                 return hasIP || hasField || this.isShow
             },
             isBusinessHost () {
-                return this.$route.name === MENU_BUSINESS_HOST_MANAGEMENT
+                return this.$route.name === MENU_BUSINESS_HOST_AND_SERVICE
             }
         },
         watch: {
             filterList (newList, oldList) {
                 this.setFilterCondition()
             },
-            filterIP (value) {
-                this.initCustomFilterIP()
-            },
             filterCondition () {
                 this.checkIsScrolling()
             },
             properties (properties) {
                 this.propertyResolver && this.propertyResolver()
+            },
+            '$route.name' () {
+                this.handleToggleFilter(false)
             }
         },
         async created () {
+            Bus.$on('toggle-host-filter', this.handleToggleFilter)
+            Bus.$on('reset-host-filter', this.handleReset)
             this.propertyPromise = new Promise((resolve, reject) => {
                 this.propertyResolver = () => {
                     this.propertyResolver = null
                     resolve()
                 }
             })
-            // const formFullTextSearch = Object.keys(this.$route.params).length
-            // if (formFullTextSearch) {
-            //     this.defaultIpConfig = Object.assign(this.defaultIpConfig, this.$route.params)
-            // }
-            await this.initCustomFilterIP()
+            this.unwatch = RouterQuery.watch(['ip', 'exact', 'inner', 'outer'], ({
+                ip = '',
+                exact = this.ip.exact ? '1' : '0',
+                inner = this.ip.inner ? '1' : '0',
+                outer = this.ip.outer ? '1' : '0'
+            }) => {
+                this.ip.text = ip.split(',').join('\n')
+                this.ip.exact = parseInt(exact) === 1
+                this.ip.inner = parseInt(inner) === 1
+                this.ip.outer = parseInt(outer) === 1
+            }, { immediate: true })
             await this.initCustomFilterList()
-            // if (formFullTextSearch) {
-            //     this.handleSearch()
-            // }
         },
         beforeDestroy () {
+            Bus.$off('toggle-host-filter', this.handleToggleFilter)
+            Bus.$off('reset-host-filter', this.handleReset)
+            this.unwatch()
             this.$store.commit('hosts/clearFilter')
         },
         methods: {
-            initCustomFilterIP () {
-                if (this.filterIP) {
-                    Object.assign(this.ip, this.filterIP)
-                } else {
-                    this.ip = { ...this.defaultIpConfig }
-                }
-            },
             initCustomFilterList () {
                 const key = this.$route.meta.filterPropertyKey
                 const customData = this.$store.getters['userCustom/getCustomData'](key, [])
+                if (!customData.length && !this.isCollection) {
+                    customData.push({
+                        bk_obj_id: 'host',
+                        bk_property_id: 'operator',
+                        operator: '$eq',
+                        value: ''
+                    }, {
+                        bk_obj_id: 'host',
+                        bk_property_id: 'bk_cloud_id',
+                        operator: '$eq',
+                        value: ''
+                    })
+                }
                 this.$store.commit('hosts/setFilterList', customData)
             },
-            handleToggleFilter () {
+            handleToggleFilter (visible) {
                 const instance = this.$refs.filterPopper.instance
-                const state = instance.state
-                if (state.isVisible) {
-                    instance.hide()
+                if (typeof visible === 'boolean') {
+                    visible ? instance.show() : instance.hide(0)
                 } else {
-                    instance.show()
+                    const state = instance.state
+                    if (state.isVisible) {
+                        instance.hide()
+                    } else {
+                        instance.show()
+                    }
                 }
             },
             handleAddFilter () {
+                // fix遮盖层问题
+                window.__bk_zIndex_manager.nextZIndex()
                 this.$refs.propertySelector.isShow = true
             },
-            async handleDeteleFilter (filterItem) {
+            async handleDeleteFilter (filterItem) {
                 const conditionList = this.filterCondition.filter(item => !(item.bk_obj_id === filterItem.bk_obj_id && item.bk_property_id === filterItem.bk_property_id))
                 const list = conditionList.map(condition => {
                     return {
@@ -282,17 +329,17 @@
                         [key]: userCustomList
                     })
                 }
+                this.$store.commit('hosts/setShouldInjectAsset', false)
                 this.$store.commit('hosts/setFilterList', list)
             },
             handleSearch (toggle = true) {
                 const params = this.getParams()
-                this.$store.commit('hosts/setFilterParams', params)
-                if (toggle) {
-                    this.handleToggleFilter()
-                }
+                this.updateQuery(params)
+                toggle && this.handleToggleFilter()
             },
             handleCreateCollection () {
                 const instance = this.$refs.collectionPopover.instance
+                this.errors.clear()
                 instance.show()
             },
             async handleUpdateCollection () {
@@ -316,6 +363,10 @@
             },
             async handleSaveCollection () {
                 try {
+                    const isValid = await this.$validator.validate('collectionName')
+                    if (!isValid) {
+                        return false
+                    }
                     const data = this.getCollectionParams()
                     const result = await this.$store.dispatch('hostFavorites/createFavorites', {
                         params: data,
@@ -332,6 +383,7 @@
             },
             getCollectionParams () {
                 return {
+                    bk_biz_id: this.$store.getters['objectBiz/bizId'],
                     name: this.collectionName,
                     info: JSON.stringify({
                         exact_search: this.ip.exact,
@@ -350,10 +402,15 @@
                     is_default: 2
                 }
             },
+            focusCollectionName () {
+                this.$refs.collectionName.$refs.input.focus()
+            },
+            clearCollectionName () {
+                this.collectionName = ''
+            },
             handleCancelCollection () {
                 const instance = this.$refs.collectionPopover.instance
                 instance.hide()
-                this.collectionName = ''
             },
             handleReset () {
                 this.ip = { ...this.defaultIpConfig }
@@ -361,21 +418,22 @@
                     filterItem.value = ''
                 })
                 const params = this.getParams()
-                this.$store.commit('hosts/setFilterParams', params)
+                this.updateQuery(params)
             },
             getParams () {
+                const inputIPPlayload = {
+                    data: this.getIPList(),
+                    inner: this.ip.inner,
+                    outer: this.ip.outer,
+                    exact: this.ip.exact
+                }
                 const params = {
-                    ip: {
-                        data: this.getIPList(),
-                        exact: this.ip.exact ? 1 : 0,
-                        flag: ['bk_host_innerip', 'bk_host_outerip'].filter((flag, index) => {
-                            return index === 0 ? this.ip.inner : this.ip.outer
-                        }).join('|')
-                    },
+                    ip: getIPPayload(inputIPPlayload),
                     host: [],
                     module: [],
                     set: [],
-                    biz: []
+                    biz: [],
+                    object: []
                 }
                 this.filterCondition.forEach(filterItem => {
                     const filterValue = filterItem.value
@@ -392,17 +450,49 @@
                                 value: filterItem.value[1]
                             }])
                         } else {
+                            let operator = filterItem.operator
+                            let value = filterValue
+
+                            if (['category', 'organization'].includes(filterItem.bk_property_type)) {
+                                operator = '$in'
+                            }
+
+                            if (filterItem.operator === '$multilike' || ['bk_set_name', 'bk_module_name'].includes(filterItem.bk_property_id)) {
+                                value = filterValue.split(/\n|;|；|,|，/).filter(str => str.trim().length).map(str => str.trim())
+                            }
+
                             params[modelId].push({
                                 field: filterItem.bk_property_id,
-                                operator: filterItem.operator,
-                                value: filterItem.operator === '$multilike'
-                                    ? filterValue.split('\n').filter(str => str.trim().length).map(str => str.trim())
-                                    : filterValue
+                                operator,
+                                value
                             })
                         }
                     }
                 })
                 return params
+            },
+            updateQuery (params) {
+                this.$store.commit('hosts/setCondition', ['biz', 'set', 'module', 'host', 'object'].map(modelId => {
+                    return {
+                        bk_obj_id: modelId,
+                        fields: [],
+                        condition: params[modelId]
+                    }
+                }))
+                const flags = params.ip.flag.split('|')
+                const query = {
+                    ip: params.ip.data.join(','),
+                    exact: params.ip.exact,
+                    inner: flags.includes('bk_host_innerip') ? 1 : 0,
+                    outer: flags.includes('bk_host_outerip') ? 1 : 0,
+                    page: 1,
+                    _t: Date.now()
+                }
+                const assetCondition = params.host.find(condition => {
+                    return condition.field === 'bk_asset_id' && condition.operator === '$in'
+                })
+                query.bk_asset_id = assetCondition ? assetCondition.value.toString() : ''
+                RouterQuery.set(query)
             },
             getIPList () {
                 const list = []
@@ -430,7 +520,8 @@
                                 bk_property_type: property.bk_property_type,
                                 option: property.option,
                                 operator: filter.operator,
-                                value: filter.value
+                                value: filter.value,
+                                unit: property.unit
                             }
                             const existCondition = oldCondition.find(old => {
                                 return old.bk_obj_id === property.bk_obj_id
@@ -447,9 +538,35 @@
                             }
                         }
                     })
+                    this.injectAssetCondition(filterCondition)
                     this.filterCondition = filterCondition
                 } catch (e) {
                     console.error(e)
+                }
+            },
+            injectAssetCondition (filterCondition) {
+                const assetIds = RouterQuery.get('bk_asset_id', '').split(',').filter(id => !!id.length)
+                if (!this.shouldInjectAsset || !assetIds.length) {
+                    this.$store.commit('hosts/setShouldInjectAsset', true)
+                    return
+                }
+                const injectCondition = {
+                    bk_obj_id: 'host',
+                    bk_property_id: 'bk_asset_id',
+                    bk_property_type: 'singlechar',
+                    operator: '$in',
+                    option: '',
+                    value: assetIds.join('\n')
+                }
+                const assetCondition = filterCondition.find(condition => {
+                    return condition.bk_obj_id === injectCondition.bk_obj_id
+                        && condition.bk_property_id === injectCondition.bk_property_id
+                        && condition.bk_property_type === injectCondition.bk_property_type
+                })
+                if (assetCondition) {
+                    Object.assign(assetCondition, injectCondition)
+                } else {
+                    filterCondition.unshift(injectCondition)
                 }
             },
             checkIsScrolling () {
@@ -483,19 +600,33 @@
                     return 'char'
                 }
                 return 'common'
+            },
+            hide () {
+                try {
+                    const instance = this.$refs.filterPopper.instance
+                    instance.hide()
+                } catch (e) {}
             }
         }
     }
 </script>
 
 <style lang="scss" scoped="true">
+    .filter-content {
+        border: 1px solid #DCDEE5;
+    }
     .filter-trigger {
         width: 32px;
         padding: 0;
         line-height: 30px;
     }
-    .filter-trigger.is-active {
-        color: #3A84FF;
+    .filter-trigger {
+        &.is-active {
+            color: #3A84FF;
+            &:hover {
+                color: #3A84FF;
+            }
+        }
     }
     .filter-title {
         position: relative;
@@ -506,9 +637,14 @@
             position: absolute;
             right: 0px;
             top: 0px;
+            font-size: 20px;
             color: #979BA5;
             &:hover {
                 color: #63656E;
+            }
+
+            /deep/ .bk-icon {
+                font-size: 22px;
             }
         }
     }
@@ -537,9 +673,14 @@
         margin: 14px 0 0 0;
         .filter-add-button {
             /deep/ {
-                span {
-                    display: inline-block;
-                    vertical-align: middle;
+                > div {
+                    display: flex;
+                    justify-content: center;
+                    align-items: center;
+                }
+                .bk-icon {
+                    position: initial;
+                    font-size: 20px;
                 }
             }
         }
@@ -564,10 +705,11 @@
         }
         .icon-close {
             color: #d8d8d8;
-            font-size: 14px;
+            font-size: 20px;
             font-weight: bold;
             line-height: 32px;
-            margin: 0 0 0 6px;
+            height: 32px;
+            margin: 0 0 0 3px;
             cursor: pointer;
             opacity: 0;
             &:hover {
@@ -592,6 +734,9 @@
         }
         .collection-name {
             margin-top: 13px;
+        }
+        .collection-error {
+            color: $dangerColor;
         }
         .collection-options {
             padding: 20px 0 10px;

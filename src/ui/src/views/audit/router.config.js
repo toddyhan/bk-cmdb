@@ -1,8 +1,8 @@
-import { R_AUDIT } from '@/dictionary/auth'
+import { MENU_ANALYSIS_AUDIT } from '@/dictionary/menu-symbol'
+import { OPERATION } from '@/dictionary/iam-auth'
 import Meta from '@/router/meta'
-
 export default {
-    name: 'audit',
+    name: MENU_ANALYSIS_AUDIT,
     path: 'audit',
     component: () => import('./index.vue'),
     meta: new Meta({
@@ -10,8 +10,7 @@ export default {
             i18n: '操作审计'
         },
         auth: {
-            view: { R_AUDIT },
-            authScope: 'global'
+            view: { type: OPERATION.R_AUDIT }
         }
     })
 }

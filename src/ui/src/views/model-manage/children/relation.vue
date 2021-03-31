@@ -1,22 +1,21 @@
 <template>
     <div class="model-relation-wrapper">
         <div class="options">
-            <span v-cursor="{
-                active: !$isAuthorized($OPERATION.U_MODEL),
-                auth: [$OPERATION.U_MODEL]
-            }">
-                <bk-button class="create-btn" theme="primary"
-                    :disabled="isReadOnly || !updateAuth"
+            <cmdb-auth :auth="{ type: $OPERATION.U_MODEL, relation: [modelId] }" @update-auth="handleReceiveAuth">
+                <bk-button slot-scope="{ disabled }"
+                    class="create-btn"
+                    theme="primary"
+                    :disabled="isReadOnly || disabled"
                     @click="createRelation">
                     {{$t('新建关联')}}
                 </bk-button>
-            </span>
+            </cmdb-auth>
         </div>
         <bk-table
             class="relation-table"
             v-bkloading="{ isLoading: $loading() }"
             :data="table.list"
-            :max-height="$APP.height - 220"
+            :max-height="$APP.height - 320"
             :row-style="{
                 cursor: 'pointer'
             }"
@@ -31,22 +30,22 @@
                     <span class="relation-id">{{row['bk_obj_asst_id']}}</span>
                 </template>
             </bk-table-column>
-            <bk-table-column prop="bk_asst_name" :label="$t('关联类型')">
+            <bk-table-column prop="bk_asst_name" :label="$t('关联类型')" show-overflow-tooltip>
                 <template slot-scope="{ row }">
                     {{getRelationName(row['bk_asst_id'])}}
                 </template>
             </bk-table-column>
-            <bk-table-column prop="mapping" :label="$t('源-目标约束')">
+            <bk-table-column prop="mapping" :label="$t('源-目标约束')" show-overflow-tooltip>
                 <template slot-scope="{ row }">
                     {{mappingMap[row.mapping]}}
                 </template>
             </bk-table-column>
-            <bk-table-column prop="bk_obj_name" :label="$t('源模型')">
+            <bk-table-column prop="bk_obj_name" :label="$t('源模型')" show-overflow-tooltip>
                 <template slot-scope="{ row }">
                     {{getModelName(row['bk_obj_id'])}}
                 </template>
             </bk-table-column>
-            <bk-table-column prop="bk_asst_obj_name" :label="$t('目标模型')">
+            <bk-table-column prop="bk_asst_obj_name" :label="$t('目标模型')" show-overflow-tooltip>
                 <template slot-scope="{ row }">
                     {{getModelName(row['bk_asst_obj_id'])}}
                 </template>
@@ -55,23 +54,28 @@
                 <template slot-scope="{ row }">
                     <button class="text-primary mr10 operation-btn"
                         :disabled="!isEditable(row)"
+                        @keydown.enter.prevent
                         @click.stop="editRelation(row)">
                         {{$t('编辑')}}
                     </button>
                     <button class="text-primary operation-btn"
                         :disabled="!isEditable(row)"
+                        @keydown.enter.prevent
                         @click.stop="deleteRelation(row)">
                         {{$t('删除')}}
                     </button>
                 </template>
             </bk-table-column>
+            <cmdb-table-empty slot="empty" :stuff="table.stuff"></cmdb-table-empty>
         </bk-table>
         <bk-sideslider
             v-transfer-dom
             :width="450"
             :title="slider.title"
-            :is-show.sync="slider.isShow">
+            :is-show.sync="slider.isShow"
+            :before-close="handleSliderBeforeClose">
             <the-relation-detail
+                ref="relationForm"
                 slot="content"
                 v-if="slider.isShow"
                 :is-read-only="isReadOnly || slider.isReadOnly"
@@ -79,7 +83,7 @@
                 :relation="slider.relation"
                 :relation-list="relationList"
                 @save="saveRelation"
-                @cancel="slider.isShow = false">
+                @cancel="handleSliderBeforeClose">
             </the-relation-detail>
         </bk-sideslider>
     </div>
@@ -92,8 +96,15 @@
         components: {
             theRelationDetail
         },
+        props: {
+            modelId: {
+                type: Number,
+                default: null
+            }
+        },
         data () {
             return {
+                updateAuth: false,
                 slider: {
                     isShow: false,
                     isEdit: false,
@@ -104,7 +115,13 @@
                 table: {
                     list: [],
                     defaultSort: '-op_time',
-                    sort: '-op_time'
+                    sort: '-op_time',
+                    stuff: {
+                        type: 'default',
+                        payload: {
+                            emptyText: this.$t('bk.table.emptyText')
+                        }
+                    }
                 },
                 mappingMap: {
                     '1:1': '1-1',
@@ -114,10 +131,8 @@
             }
         },
         computed: {
-            ...mapGetters(['isAdminView', 'isBusinessSelected']),
             ...mapGetters('objectModel', [
-                'activeModel',
-                'isInjectable'
+                'activeModel'
             ]),
             ...mapGetters('objectModelClassify', ['models']),
             isReadOnly () {
@@ -125,19 +140,18 @@
                     return this.activeModel['bk_ispaused']
                 }
                 return false
-            },
-            updateAuth () {
-                const cantEdit = ['process', 'plat']
-                if (cantEdit.includes(this.$route.params.modelId)) {
-                    return false
-                }
-                const editable = this.isAdminView || (this.isBusinessSelected && this.isInjectable)
-                return editable && this.$isAuthorized(this.$OPERATION.U_MODEL)
             }
         },
-        created () {
-            this.searchRelationList()
-            this.initRelationList()
+        watch: {
+            activeModel: {
+                immediate: true,
+                handler (activeModel) {
+                    if (activeModel.bk_obj_id) {
+                        this.searchRelationList()
+                        this.initRelationList()
+                    }
+                }
+            }
         },
         methods: {
             ...mapActions('objectAssociation', [
@@ -148,9 +162,6 @@
             isEditable (item) {
                 if (item.ispre || item['bk_asst_id'] === 'bk_mainline' || this.isReadOnly) {
                     return false
-                }
-                if (!this.isAdminView) {
-                    return !!this.$tools.getMetadataBiz(item)
                 }
                 return true
             },
@@ -209,7 +220,6 @@
                         await this.deleteObjectAssociation({
                             id: relation.id,
                             config: {
-                                data: this.$injectMetadata({}, { inject: this.isInjectable }),
                                 requestId: 'deleteObjectAssociation'
                             }
                         }).then(() => {
@@ -225,24 +235,20 @@
             },
             searchAsSource () {
                 return this.searchObjectAssociation({
-                    params: this.$injectMetadata({
+                    params: {
                         condition: {
                             'bk_obj_id': this.activeModel['bk_obj_id']
                         }
-                    }, {
-                        inject: this.isInjectable
-                    })
+                    }
                 })
             },
             searchAsDest () {
                 return this.searchObjectAssociation({
-                    params: this.$injectMetadata({
+                    params: {
                         condition: {
                             'bk_asst_obj_id': this.activeModel['bk_obj_id']
                         }
-                    }, {
-                        inject: this.isInjectable
-                    })
+                    }
                 })
             },
             saveRelation () {
@@ -256,6 +262,30 @@
                 this.slider.relation = row
                 this.slider.title = this.$t('查看关联')
                 this.slider.isShow = true
+            },
+            handleReceiveAuth (auth) {
+                this.updateAuth = auth
+            },
+            handleSliderBeforeClose () {
+                const hasChanged = Object.keys(this.$refs.relationForm.changedValues).length
+                if (hasChanged) {
+                    return new Promise((resolve, reject) => {
+                        this.$bkInfo({
+                            title: this.$t('确认退出'),
+                            subTitle: this.$t('退出会导致未保存信息丢失'),
+                            extCls: 'bk-dialog-sub-header-center',
+                            confirmFn: () => {
+                                this.slider.isShow = false
+                                resolve(true)
+                            },
+                            cancelFn: () => {
+                                resolve(false)
+                            }
+                        })
+                    })
+                }
+                this.slider.isShow = false
+                return true
             }
         }
     }

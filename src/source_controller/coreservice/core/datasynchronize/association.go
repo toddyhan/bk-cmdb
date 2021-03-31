@@ -17,56 +17,54 @@ import (
 	"configcenter/src/common"
 	"configcenter/src/common/blog"
 	"configcenter/src/common/errors"
+	"configcenter/src/common/http/rest"
 	"configcenter/src/common/metadata"
-	"configcenter/src/source_controller/coreservice/core"
-	"configcenter/src/storage/dal"
+	"configcenter/src/storage/driver/mongodb"
 )
 
 type association struct {
 	base     *synchronizeAdapter
 	dataType metadata.SynchronizeOperateDataType
 	// instance data classify
-	dbProxy      dal.RDB
 	DataClassify string
 }
 
-func NewSynchronizeAssociationAdapter(s *metadata.SynchronizeParameter, dbProxy dal.RDB) dataTypeInterface {
+func NewSynchronizeAssociationAdapter(s *metadata.SynchronizeParameter) dataTypeInterface {
 
 	return &association{
-		base:         newSynchronizeAdapter(s, dbProxy),
+		base:         newSynchronizeAdapter(s),
 		dataType:     s.OperateDataType,
 		DataClassify: s.DataClassify,
-		dbProxy:      dbProxy,
 	}
 }
 
-func (a *association) SaveSynchronize(ctx core.ContextParams) errors.CCError {
+func (a *association) SaveSynchronize(kit *rest.Kit) errors.CCError {
 
 	// Each model is written separately for subsequent expansion,
 	// each type may be processed differently.
 	switch a.base.syncData.DataClassify {
 	case common.SynchronizeAssociationTypeModelHost:
-		return a.saveSynchronizeAssociationModuleHostConfig(ctx)
+		return a.saveSynchronizeAssociationModuleHostConfig(kit)
 	default:
-		return ctx.Error.Errorf(common.CCErrCoreServiceSyncDataClassifyNotExistError, a.dataType, a.DataClassify)
+		return kit.CCError.Errorf(common.CCErrCoreServiceSyncDataClassifyNotExistError, a.dataType, a.DataClassify)
 	}
 
 }
 
-func (a *association) PreSynchronizeFilter(ctx core.ContextParams) errors.CCError {
-	err := a.preSynchronizeFilterBefore(ctx)
+func (a *association) PreSynchronizeFilter(kit *rest.Kit) errors.CCError {
+	err := a.preSynchronizeFilterBefore(kit)
 	if err != nil {
 		return err
 	}
-	return a.base.PreSynchronizeFilter(ctx)
+	return a.base.PreSynchronizeFilter(kit)
 }
 
-func (a *association) GetErrorStringArr(ctx core.ContextParams) ([]metadata.ExceptionResult, errors.CCError) {
+func (a *association) GetErrorStringArr(kit *rest.Kit) ([]metadata.ExceptionResult, errors.CCError) {
 
 	if len(a.base.errorArray) == 0 {
 		return nil, nil
 	}
-	err := ctx.Error.Error(common.CCErrCoreServiceSyncError)
+	err := kit.CCError.Error(common.CCErrCoreServiceSyncError)
 	switch a.base.syncData.DataClassify {
 	case common.SynchronizeAssociationTypeModelHost:
 		var errArr []metadata.ExceptionResult
@@ -79,13 +77,13 @@ func (a *association) GetErrorStringArr(ctx core.ContextParams) ([]metadata.Exce
 		}
 		return errArr, err
 	default:
-		return a.base.GetErrorStringArr(ctx)
+		return a.base.GetErrorStringArr(kit)
 	}
 }
 
 // saveSynchronizeAssociationModuleHostConfig
 // Host and module relationship is special, need special implementation
-func (a *association) saveSynchronizeAssociationModuleHostConfig(ctx core.ContextParams) errors.CCError {
+func (a *association) saveSynchronizeAssociationModuleHostConfig(kit *rest.Kit) errors.CCError {
 	tableName := common.BKTableNameModuleHostConfig
 	for _, item := range a.base.syncData.InfoArray {
 
@@ -94,32 +92,32 @@ func (a *association) saveSynchronizeAssociationModuleHostConfig(ctx core.Contex
 		newItem := item.Info.Clone()
 
 		newItem.Remove(common.MetadataField)
-		cnt, err := a.dbProxy.Table(tableName).Find(newItem).Count(ctx)
+		cnt, err := mongodb.Client().Table(tableName).Find(newItem).Count(kit.Ctx)
 		if err != nil {
-			blog.Errorf("saveSynchronizeAssociationModuleHostConfig query db error,err:%s.DataSign:%s,condition:%#v,rid:%s", err.Error(), a.DataClassify, newItem, ctx.ReqID)
+			blog.Errorf("saveSynchronizeAssociationModuleHostConfig query db error,err:%s.DataSign:%s,condition:%#v,rid:%s", err.Error(), a.DataClassify, newItem, kit.Rid)
 			a.base.errorArray[item.ID] = synchronizeAdapterError{
 				instInfo: item,
-				err:      ctx.Error.Error(common.CCErrCommDBSelectFailed),
+				err:      kit.CCError.Error(common.CCErrCommDBSelectFailed),
 			}
 			continue
 		}
 		if cnt == 0 {
-			err := a.dbProxy.Table(tableName).Insert(ctx, item.Info)
+			err := mongodb.Client().Table(tableName).Insert(kit.Ctx, item.Info)
 			if err != nil {
-				blog.Errorf("saveSynchronizeAssociationModuleHostConfig save data to db error,err:%s.DataSign:%s,info:%#v,rid:%s", err.Error(), a.DataClassify, item, ctx.ReqID)
+				blog.Errorf("saveSynchronizeAssociationModuleHostConfig save data to db error,err:%s.DataSign:%s,info:%#v,rid:%s", err.Error(), a.DataClassify, item, kit.Rid)
 				a.base.errorArray[item.ID] = synchronizeAdapterError{
 					instInfo: item,
-					err:      ctx.Error.Error(common.CCErrCommDBInsertFailed),
+					err:      kit.CCError.Error(common.CCErrCommDBInsertFailed),
 				}
 				continue
 			}
 		} else {
-			err := a.dbProxy.Table(tableName).Update(ctx, newItem, item.Info)
+			err := mongodb.Client().Table(tableName).Update(kit.Ctx, newItem, item.Info)
 			if err != nil {
-				blog.Errorf("saveSynchronizeAssociationModuleHostConfig update data to db error,err:%s.DataSign:%s,info:%#v,rid:%s", err.Error(), a.DataClassify, item, ctx.ReqID)
+				blog.Errorf("saveSynchronizeAssociationModuleHostConfig update data to db error,err:%s.DataSign:%s,info:%#v,rid:%s", err.Error(), a.DataClassify, item, kit.Rid)
 				a.base.errorArray[item.ID] = synchronizeAdapterError{
 					instInfo: item,
-					err:      ctx.Error.Error(common.CCErrCommDBUpdateFailed),
+					err:      kit.CCError.Error(common.CCErrCommDBUpdateFailed),
 				}
 				continue
 			}
@@ -128,7 +126,7 @@ func (a *association) saveSynchronizeAssociationModuleHostConfig(ctx core.Contex
 	return nil
 }
 
-func (a *association) preSynchronizeFilterBefore(ctx core.ContextParams) errors.CCError {
+func (a *association) preSynchronizeFilterBefore(kit *rest.Kit) errors.CCError {
 	switch a.base.syncData.DataClassify {
 	case common.SynchronizeAssociationTypeModelHost:
 		for idx, item := range a.base.syncData.InfoArray {
@@ -140,6 +138,6 @@ func (a *association) preSynchronizeFilterBefore(ctx core.ContextParams) errors.
 	}
 	return nil
 }
-func (a *association) preSynchronizeFilterEnd(ctx core.ContextParams) errors.CCError {
+func (a *association) preSynchronizeFilterEnd(kit *rest.Kit) errors.CCError {
 	return nil
 }

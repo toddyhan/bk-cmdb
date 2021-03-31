@@ -1,20 +1,16 @@
 import Vue from 'vue'
 import Vuex from 'vuex'
-
 import global from './modules/global.js'
 import request from './modules/request.js'
-
 import index from './modules/view/index.js'
 import hostDetails from './modules/view/host-details.js'
 import serviceProcess from './modules/view/service-process.js'
-import businessTopology from './modules/view/business-topology.js'
 import businessSync from './modules/view/business-sync.js'
 import hosts from './modules/view/hosts.js'
-
+import setFeatures from './modules/view/set-features.js'
 import auth from './modules/api/auth.js'
 import eventSub from './modules/api/event-sub.js'
 import hostBatch from './modules/api/host-batch.js'
-import hostCustomApi from './modules/api/host-custom-api.js'
 import hostDelete from './modules/api/host-delete.js'
 import hostFavorites from './modules/api/host-favorites.js'
 import hostRelation from './modules/api/host-relation.js'
@@ -34,7 +30,6 @@ import objectModule from './modules/api/object-module.js'
 import objectRelation from './modules/api/object-relation.js'
 import objectSet from './modules/api/object-set.js'
 import objectUnique from './modules/api/object-unique.js'
-import operationAudit from './modules/api/operation-audit.js'
 import procConfig from './modules/api/proc-config.js'
 import userCustom from './modules/api/user-custom.js'
 import userPrivilege from './modules/api/user-privilege.js'
@@ -50,8 +45,24 @@ import processTemplate from './modules/api/process-template.js'
 import businessSynchronous from './modules/api/business-synchronous.js'
 import serviceInstance from './modules/api/service-instance.js'
 import processInstance from './modules/api/process-instance.js'
+import operationChart from './modules/api/operation-chart'
 import instanceLabel from './modules/api/instance-label.js'
 import fullTextSearch from './modules/api/full-text-search.js'
+import setSync from './modules/api/set-sync.js'
+import setTemplate from './modules/api/set-template.js'
+import cloud from './modules/api/cloud.js'
+import hostApply from './modules/api/host-apply'
+
+import resourceDirectory from './modules/api/resource-directory.js'
+import resource from './modules/api/resource.js'
+
+import organization from './modules/api/organization'
+
+import businessHost from './modules/view/business-host.js'
+import resourceHost from './modules/view/resource-host.js'
+import cloudarea from './modules/api/cloudarea'
+import audit from './modules/api/audit.js'
+import dynamicGroup from './modules/api/dynamic-group'
 
 Vue.use(Vuex)
 
@@ -61,15 +72,13 @@ export default new Vuex.Store({
         index,
         hostDetails,
         serviceProcess,
-        businessTopology,
         businessSync,
         hosts,
-        
+        setFeatures,
         auth,
         request,
         eventSub,
         hostBatch,
-        hostCustomApi,
         hostDelete,
         hostFavorites,
         hostRelation,
@@ -89,7 +98,6 @@ export default new Vuex.Store({
         objectRelation,
         objectSet,
         objectUnique,
-        operationAudit,
         procConfig,
         userCustom,
         userPrivilege,
@@ -105,7 +113,20 @@ export default new Vuex.Store({
         businessSynchronous,
         serviceInstance,
         processInstance,
+        operationChart,
         instanceLabel,
-        fullTextSearch
+        fullTextSearch,
+        setSync,
+        setTemplate,
+        businessHost,
+        cloud,
+        hostApply,
+        resourceHost,
+        resourceDirectory,
+        resource,
+        cloudarea,
+        organization,
+        audit,
+        dynamicGroup
     }
 })

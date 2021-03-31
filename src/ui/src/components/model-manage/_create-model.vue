@@ -19,16 +19,21 @@
                         <span class="label-title">{{$t('所属分组')}}</span>
                         <span class="color-danger">*</span>
                         <div class="cmdb-form-item" :class="{ 'is-error': errors.has('modelGroup') }">
-                            <bk-select style="width: 100%;"
-                                v-model="modelDialog.data.bk_classification_id"
+                            <bk-select style="width: 100%;" ref="groupSelector"
                                 v-validate="'required'"
                                 name="modelGroup"
-                                :scroll-height="200"
-                                :empty-text="isAdminView ? '' : $t('无自定义分组')">
+                                :value="modelDialog.data.bk_classification_id"
+                                :scroll-height="200">
                                 <bk-option v-for="(option, index) in localClassifications"
                                     :key="index"
                                     :id="option.bk_classification_id"
                                     :name="option.bk_classification_name">
+                                    <cmdb-auth class="group-auth" tag="div" style="display: block;"
+                                        :auth="{ type: $OPERATION.C_MODEL, relation: [option.id] }"
+                                        @click.native.stop
+                                        @click="handleSelectGroup(option)">
+                                        {{option.bk_classification_name}}
+                                    </cmdb-auth>
                                 </bk-option>
                             </bk-select>
                             <p class="form-error" :title="errors.first('modelGroup')">{{errors.first('modelGroup')}}</p>
@@ -42,11 +47,11 @@
                                 name="modelId"
                                 :placeholder="$t('请输入唯一标识')"
                                 v-model.trim="modelDialog.data['bk_obj_id']"
-                                v-validate="'required|modelId'">
+                                v-validate="'required|modelId|length:115'">
                             </bk-input>
                             <p class="form-error" :title="errors.first('modelId')">{{errors.first('modelId')}}</p>
                         </div>
-                        <i class="icon-cc-exclamation-tips" v-bk-tooltips="$t('下划线，数字，英文小写的组合')"></i>
+                        <i class="icon-cc-exclamation-tips" v-bk-tooltips="$t('模型唯一标识提示语')"></i>
                     </label>
                     <label>
                         <span class="label-title">{{$t('名称')}}</span>
@@ -55,7 +60,7 @@
                             <bk-input type="text" class="cmdb-form-input"
                                 name="modelName"
                                 :placeholder="$t('请输入名称')"
-                                v-validate="'required|singlechar|length:256'"
+                                v-validate="'required|singlechar|length:128'"
                                 v-model.trim="modelDialog.data['bk_obj_name']">
                             </bk-input>
                             <p class="form-error" :title="errors.first('modelName')">{{errors.first('modelName')}}</p>
@@ -73,7 +78,7 @@
             </div>
         </div>
         <div slot="footer" class="footer">
-            <bk-button theme="primary" @click="confirm">{{$t('保存')}}</bk-button>
+            <bk-button theme="primary" @click="confirm">{{$t('提交')}}</bk-button>
             <bk-button theme="default" @click="cancel">{{$t('取消')}}</bk-button>
         </div>
     </bk-dialog>
@@ -122,23 +127,9 @@
             ...mapGetters('objectModelClassify', [
                 'classifications'
             ]),
-            ...mapGetters(['isAdminView']),
             localClassifications () {
-                const localClassifications = []
-                this.classifications.forEach(classification => {
-                    if (!['bk_biz_topo', 'bk_host_manage', 'bk_organization'].includes(classification['bk_classification_id'])) {
-                        const localClassification = {
-                            ...classification,
-                            isModelShow: false
-                        }
-                        if (this.isAdminView) {
-                            localClassifications.push(localClassification)
-                        } else if (this.$tools.getMetadataBiz(classification)) {
-                            localClassifications.push(localClassification)
-                        }
-                    }
-                })
-                return localClassifications
+                const filterGroups = ['bk_biz_topo', 'bk_host_manage', 'bk_organization']
+                return this.classifications.filter(group => !filterGroups.includes(group.bk_classification_id))
             }
         },
         watch: {
@@ -156,6 +147,10 @@
             }
         },
         methods: {
+            handleSelectGroup (group) {
+                this.modelDialog.data.bk_classification_id = group.bk_classification_id
+                this.$refs.groupSelector.close()
+            },
             async confirm () {
                 if (!await this.$validator.validateAll()) {
                     return
@@ -259,6 +254,14 @@
             width: 100%;
             background: #fff;
             z-index: 99;
+        }
+    }
+    .group-auth {
+        margin: 0 -16px;
+        padding: 0 16px;
+        &.disabled {
+            background-color: #fff;
+            color: $textDisabledColor;
         }
     }
 </style>

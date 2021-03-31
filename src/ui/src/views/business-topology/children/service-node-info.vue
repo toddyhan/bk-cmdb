@@ -1,5 +1,5 @@
 <template>
-    <div class="node-info" style="height: 100%;"
+    <div class="node-info"
         v-bkloading="{
             isLoading: $loading([
                 'getModelProperties',
@@ -11,82 +11,129 @@
             ])
         }"
     >
+        <cmdb-permission v-if="permission" class="permission-tips" :permission="permission"></cmdb-permission>
         <cmdb-details class="topology-details"
-            v-if="type === 'details'"
+            v-else-if="type === 'details'"
+            :class="{ pt10: !isSetNode && !isModuleNode }"
             :properties="properties"
             :property-groups="propertyGroups"
-            :inst="flattenedInstance"
-            :show-options="modelId !== 'biz' && !isBlueking">
-            <template slot="details-options">
-                <span style="display: inline-block;"
-                    v-cursor="{
-                        active: !$isAuthorized($OPERATION.U_TOPO),
-                        auth: [$OPERATION.U_TOPO]
-                    }">
-                    <bk-button class="button-edit"
-                        theme="primary"
-                        :disabled="!$isAuthorized($OPERATION.U_TOPO)"
-                        @click="handleEdit">
-                        {{$t('编辑')}}
-                    </bk-button>
-                </span>
-                <span style="display: inline-block;"
-                    v-cursor="{
-                        active: !$isAuthorized($OPERATION.D_TOPO),
-                        auth: [$OPERATION.D_TOPO]
-                    }">
-                    <bk-button class="btn-delete"
-                        :disabled="!$isAuthorized($OPERATION.D_TOPO)"
-                        @click="handleDelete">
-                        {{$t('删除节点')}}
-                    </bk-button>
-                </span>
-            </template>
-            <span class="property-value fl" slot="__template_name__">
-                <span class="link"
-                    v-if="withTemplate"
-                    @click="goServiceTemplate">{{flattenedInstance.__template_name__}}</span>
-                <span v-else>{{flattenedInstance.__template_name__}}</span>
-                <!-- <span style="display: inline-block;"
-                    v-if="withTemplate"
-                    v-cursor="{
-                        active: !$isAuthorized($OPERATION.U_TOPO),
-                        auth: [$OPERATION.U_TOPO]
-                    }">
-                    <bk-button class="unbind-button"
-                        :disabled="!$isAuthorized($OPERATION.U_TOPO)"
-                        @click="handleRemoveTemplate">
-                        {{$t('解除模板')}}
-                    </bk-button>
-                </span> -->
-            </span>
-        </cmdb-details>
-        <cmdb-form class="topology-form" v-else-if="type === 'update'"
-            ref="form"
-            :properties="properties"
-            :property-groups="propertyGroups"
-            :disabled-properties="disabledProperties"
             :inst="instance"
-            :type="type"
-            @on-submit="handleSubmit"
-            @on-cancel="handleCancel">
-            <template slot="__service_category__" v-if="!withTemplate">
-                <cmdb-selector class="category-selector fl"
-                    :list="firstCategories"
-                    v-model="first">
-                </cmdb-selector>
-                <cmdb-selector class="category-selector fl"
-                    :list="secondCategories"
-                    v-model="second"
-                    @on-selected="handleChangeCategory">
-                </cmdb-selector>
+            :show-options="modelId !== 'biz' && editable">
+            <!-- 改为v-show, 因为 v-if时，直接查看集群节点信息，第一次slot外层未打上scope标志，导致css不生效  -->
+            <!-- 可能是vue bug 原因未知  -->
+            <div class="template-info mb10 clearfix"
+                v-show="isSetNode || isModuleNode"
+                slot="prepend">
+                <template v-if="isModuleNode">
+                    <div class="info-item fl" :title="`${$t('服务模板')} : ${templateInfo.serviceTemplateName}`">
+                        <span class="name fl">{{$t('服务模板')}}</span>
+                        <div class="value fl">
+                            <div class="template-value" v-if="withTemplate" @click="goServiceTemplate">
+                                <span class="text link">{{templateInfo.serviceTemplateName}}</span>
+                                <i class="icon-cc-share"></i>
+                            </div>
+                            <span class="text" v-else>{{templateInfo.serviceTemplateName}}</span>
+                        </div>
+                    </div>
+                    <div class="info-item fl" :title="`${$t('服务分类')} : ${templateInfo.serviceCategory || '--'}`">
+                        <span class="name fl">{{$t('服务分类')}}</span>
+                        <div class="value fl">
+                            <span class="text">{{templateInfo.serviceCategory || '--'}}</span>
+                        </div>
+                    </div>
+                </template>
+                <template v-else-if="isSetNode">
+                    <div class="info-item fl" :title="`${$t('集群模板')} : ${templateInfo.setTemplateName}`">
+                        <span class="name fl">{{$t('集群模板')}}</span>
+                        <div class="value fl">
+                            <template v-if="withSetTemplate">
+                                <div class="template-value set-template fl" @click="goSetTemplate">
+                                    <span class="text link">{{templateInfo.setTemplateName}}</span>
+                                    <i class="icon-cc-share"></i>
+                                </div>
+                                <cmdb-auth :auth="{ type: $OPERATION.U_TOPO, relation: [business] }">
+                                    <bk-button slot-scope="{ disabled }"
+                                        :class="['sync-set-btn', 'ml5', { 'has-change': hasChange }]"
+                                        :disabled="!hasChange || disabled"
+                                        @click="handleSyncSetTemplate">
+                                        {{$t('同步集群')}}
+                                    </bk-button>
+                                </cmdb-auth>
+                            </template>
+                            <span class="text" v-else>{{templateInfo.setTemplateName}}</span>
+                        </div>
+                    </div>
+                </template>
+            </div>
+            <template slot="details-options">
+                <cmdb-auth :auth="{ type: $OPERATION.U_TOPO, relation: [business] }">
+                    <template slot-scope="{ disabled }">
+                        <bk-button class="button-edit"
+                            theme="primary"
+                            :disabled="disabled"
+                            @click="handleEdit">
+                            {{$t('编辑')}}
+                        </bk-button>
+                    </template>
+                </cmdb-auth>
+                <cmdb-auth :auth="{ type: $OPERATION.D_TOPO, relation: [business] }">
+                    <template slot-scope="{ disabled }">
+                        <span class="inline-block-middle" v-if="moduleFromSetTemplate"
+                            v-bk-tooltips="$t('由集群模板创建的模块无法删除')">
+                            <bk-button class="btn-delete" hover-theme="danger" disabled>
+                                {{$t('删除节点')}}
+                            </bk-button>
+                        </span>
+                        <bk-button class="btn-delete" v-else
+                            hover-theme="danger"
+                            :disabled="disabled"
+                            @click="handleDelete">
+                            {{$t('删除节点')}}
+                        </bk-button>
+                    </template>
+                </cmdb-auth>
             </template>
-        </cmdb-form>
+        </cmdb-details>
+        <template v-else-if="type === 'update'">
+            <cmdb-form class="topology-form"
+                ref="form"
+                :properties="properties"
+                :property-groups="propertyGroups"
+                :disabled-properties="disabledProperties"
+                :inst="instance"
+                :type="type"
+                :save-auth="{ type: $OPERATION.U_TOPO, relation: [business] }"
+                @on-submit="handleSubmit"
+                @on-cancel="handleCancel">
+                <div class="service-category" v-if="!withTemplate && isModuleNode" slot="prepend">
+                    <span class="title">{{$t('服务分类')}}</span>
+                    <div class="selector-item mt10 clearfix">
+                        <cmdb-selector class="category-selector fl"
+                            :list="firstCategories"
+                            v-model="first"
+                            @on-selected="handleChangeFirstCategory">
+                        </cmdb-selector>
+                        <cmdb-selector class="category-selector fl"
+                            :list="secondCategories"
+                            name="secondCategory"
+                            v-validate="'required'"
+                            v-model="second"
+                            @on-selected="handleChangeCategory">
+                        </cmdb-selector>
+                        <span class="second-category-errors" v-if="errors.has('secondCategory')">{{errors.first('secondCategory')}}</span>
+                    </div>
+                </div>
+            </cmdb-form>
+        </template>
     </div>
 </template>
 
 <script>
+    import debounce from 'lodash.debounce'
     export default {
+        props: {
+            active: Boolean
+        },
         data () {
             return {
                 type: 'details',
@@ -95,7 +142,15 @@
                 propertyGroups: [],
                 instance: {},
                 first: '',
-                second: ''
+                second: '',
+                hasChange: false,
+                templateInfo: {
+                    serviceTemplateName: this.$t('无'),
+                    serviceCategory: '',
+                    setTemplateName: this.$t('无')
+                },
+                refresh: null,
+                permission: null
             }
         },
         computed: {
@@ -103,13 +158,13 @@
                 return this.$store.getters['objectBiz/bizId']
             },
             propertyMap () {
-                return this.$store.state.businessTopology.propertyMap
+                return this.$store.state.businessHost.propertyMap
             },
             propertyGroupMap () {
-                return this.$store.state.businessTopology.propertyGroupMap
+                return this.$store.state.businessHost.propertyGroupMap
             },
             categoryMap () {
-                return this.$store.state.businessTopology.categoryMap
+                return this.$store.state.businessHost.categoryMap
             },
             firstCategories () {
                 return this.categoryMap[this.business] || []
@@ -119,10 +174,13 @@
                 return firstCategory.secondCategory || []
             },
             selectedNode () {
-                return this.$store.state.businessTopology.selectedNode
+                return this.$store.state.businessHost.selectedNode
             },
             isModuleNode () {
                 return this.selectedNode && this.selectedNode.data.bk_obj_id === 'module'
+            },
+            isSetNode () {
+                return this.selectedNode && this.selectedNode.data.bk_obj_id === 'set'
             },
             isBlueking () {
                 let rootNode = this.selectedNode || {}
@@ -137,36 +195,77 @@
                 }
                 return null
             },
+            nodeNamePropertyId () {
+                if (this.modelId) {
+                    const map = {
+                        biz: 'bk_biz_name',
+                        set: 'bk_set_name',
+                        module: 'bk_module_name'
+                    }
+                    return map[this.modelId] || 'bk_inst_name'
+                }
+                return null
+            },
+            nodePrimaryPropertyId () {
+                if (this.modelId) {
+                    const map = {
+                        biz: 'bk_biz_id',
+                        set: 'bk_set_id',
+                        module: 'bk_module_id'
+                    }
+                    return map[this.modelId] || 'bk_inst_id'
+                }
+                return null
+            },
             withTemplate () {
                 return this.isModuleNode && !!this.instance.service_template_id
             },
-            flattenedInstance () {
-                return this.$tools.flattenItem(this.properties, this.instance)
+            withSetTemplate () {
+                return this.isSetNode && !!this.instance.set_template_id
+            },
+            moduleFromSetTemplate () {
+                return this.isModuleNode && !!this.selectedNode.parent.data.set_template_id
+            },
+            editable () {
+                const editable = this.$store.state.businessHost.blueKingEditable
+                return this.isBlueking ? this.isBlueking && editable : true
             }
         },
         watch: {
             modelId: {
                 immediate: true,
                 handler (modelId) {
-                    if (modelId) {
-                        this.type = 'details'
-                        this.init()
+                    if (modelId && this.active) {
+                        this.initProperties()
                     }
                 }
             },
             selectedNode: {
                 immediate: true,
-                async handler (node) {
-                    if (node) {
-                        this.type = 'details'
-                        await this.getInstance()
-                        this.disabledProperties = node.data.bk_obj_id === 'module' && this.withTemplate ? ['bk_module_name'] : []
+                handler (node) {
+                    if (node && this.active) {
+                        this.getNodeDetails()
+                    }
+                }
+            },
+            active: {
+                immediate: true,
+                handler (active) {
+                    if (active) {
+                        this.refresh && this.refresh()
                     }
                 }
             }
         },
+        created () {
+            this.refresh = debounce(() => {
+                this.initProperties()
+                this.getNodeDetails()
+            }, 10)
+        },
         methods: {
-            async init () {
+            async initProperties () {
+                this.type = 'details'
                 try {
                     const [
                         properties,
@@ -183,6 +282,14 @@
                     this.propertyGroups = []
                 }
             },
+            async getNodeDetails () {
+                this.type = 'details'
+                await this.getInstance()
+                if (this.withSetTemplate) {
+                    this.getDiffTemplateAndInstances()
+                }
+                this.disabledProperties = this.selectedNode.data.bk_obj_id === 'module' && this.withTemplate ? ['bk_module_name'] : []
+            },
             async getProperties () {
                 let properties = []
                 const modelId = this.modelId
@@ -191,47 +298,22 @@
                 } else {
                     const action = 'objectModelProperty/searchObjectAttribute'
                     properties = await this.$store.dispatch(action, {
-                        params: this.$injectMetadata({
+                        params: {
+                            bk_biz_id: this.business,
                             bk_obj_id: modelId,
                             bk_supplier_account: this.$store.getters.supplierAccount
-                        }),
+                        },
                         config: {
                             requestId: 'getModelProperties'
                         }
                     })
-                    if (modelId === 'module') {
-                        properties.push(...this.getModuleServiceTemplateProperties())
-                    }
-                    this.$store.commit('businessTopology/setProperties', {
+                    this.$store.commit('businessHost/setProperties', {
                         id: modelId,
                         properties: properties
                     })
                 }
+                this.insertNodeIdProperty(properties)
                 return Promise.resolve(properties)
-            },
-            getModuleServiceTemplateProperties () {
-                const group = this.getModuleServiceTemplateGroup()
-                return [{
-                    bk_property_id: '__template_name__',
-                    bk_property_name: this.$t('模板名称'),
-                    bk_property_group: group.bk_group_id,
-                    bk_property_index: 1,
-                    bk_isapi: false,
-                    editable: false,
-                    unit: ''
-                }, {
-                    bk_property_id: '__service_category__',
-                    bk_property_name: this.$t('服务分类'),
-                    bk_property_group: group.bk_group_id,
-                    bk_property_index: 2,
-                    bk_isapi: false,
-                    editable: false,
-                    unit: ''
-                }]
-            },
-            updateCategoryProperty (state) {
-                const serviceCategoryProperty = this.properties.find(property => property.bk_property_id === '__service_category__') || {}
-                Object.assign(serviceCategoryProperty, state)
             },
             async getPropertyGroups () {
                 let groups = []
@@ -242,29 +324,17 @@
                     const action = 'objectModelFieldGroup/searchGroup'
                     groups = await this.$store.dispatch(action, {
                         objId: modelId,
-                        params: this.$injectMetadata(),
+                        params: { bk_biz_id: this.business },
                         config: {
                             requestId: 'getModelPropertyGroups'
                         }
                     })
-                    if (modelId === 'module') {
-                        groups.push(this.getModuleServiceTemplateGroup())
-                    }
-                    this.$store.commit('businessTopology/setPropertyGroups', {
+                    this.$store.commit('businessHost/setPropertyGroups', {
                         id: modelId,
                         groups: groups
                     })
                 }
                 return Promise.resolve(groups)
-            },
-            getModuleServiceTemplateGroup () {
-                return {
-                    bk_group_id: '__service_template_info__',
-                    bk_group_index: -1,
-                    bk_group_name: this.$t('服务模板信息'),
-                    bk_obj_id: 'module',
-                    ispre: true
-                }
             },
             async getInstance () {
                 try {
@@ -275,27 +345,33 @@
                         module: this.getModuleInstance
                     }
                     this.instance = await (promiseMap[modelId] || this.getCustomInstance)()
-                    this.$store.commit('businessTopology/setSelectedNodeInstance', this.instance)
+                    this.$store.commit('businessHost/setSelectedNodeInstance', this.instance)
                 } catch (e) {
                     console.error(e)
                     this.instance = {}
                 }
             },
             async getBizInstance () {
-                const data = await this.$store.dispatch('objectBiz/searchBusiness', {
-                    params: {
-                        page: { start: 0, limit: 1 },
-                        fields: [],
-                        condition: {
-                            bk_biz_id: { $eq: this.selectedNode.data.bk_inst_id }
+                try {
+                    const data = await this.$store.dispatch('objectBiz/searchBusiness', {
+                        params: {
+                            page: { start: 0, limit: 1 },
+                            fields: [],
+                            condition: {
+                                bk_biz_id: { $eq: this.selectedNode.data.bk_inst_id }
+                            }
+                        },
+                        config: {
+                            requestId: 'getNodeInstance',
+                            cancelPrevious: true,
+                            globalPermission: false
                         }
-                    },
-                    config: {
-                        requestId: 'getNodeInstance',
-                        cancelPrevious: true
-                    }
-                })
-                return data.info[0]
+                    })
+                    return data.info[0]
+                } catch ({ permission }) {
+                    this.permission = permission
+                    return {}
+                }
             },
             async getSetInstance () {
                 const data = await this.$store.dispatch('objectSet/searchSet', {
@@ -312,7 +388,34 @@
                         cancelPrevious: true
                     }
                 })
+                const setTemplateId = data.info[0].set_template_id
+                let setTemplateInfo = {}
+                if (setTemplateId) {
+                    setTemplateInfo = await this.getSetTemplateInfo(setTemplateId)
+                }
+                this.templateInfo.setTemplateName = setTemplateInfo.name || this.$t('无')
                 return data.info[0]
+            },
+            insertNodeIdProperty (properties) {
+                if (properties.find(property => property.bk_property_id === this.nodePrimaryPropertyId)) {
+                    return
+                }
+                const nodeNameProperty = properties.find(property => property.bk_property_id === this.nodeNamePropertyId)
+                properties.unshift({
+                    ...nodeNameProperty,
+                    bk_property_id: this.nodePrimaryPropertyId,
+                    bk_property_name: this.$t('ID'),
+                    editable: false
+                })
+            },
+            getSetTemplateInfo (id) {
+                return this.$store.dispatch('setTemplate/getSingleSetTemplateInfo', {
+                    bizId: this.business,
+                    setTemplateId: id,
+                    config: {
+                        requestId: 'getSingleSetTemplateInfo'
+                    }
+                })
             },
             async getModuleInstance () {
                 const data = await this.$store.dispatch('objectModule/searchModule', {
@@ -332,22 +435,15 @@
                     }
                 })
                 const instance = data.info[0]
-                const serviceInfo = await this.getServiceInfo(instance)
-                return {
-                    ...instance,
-                    ...serviceInfo
-                }
+                this.getServiceInfo(instance)
+                return instance
             },
             async getServiceInfo (instance) {
-                const serviceInfo = {}
-                if (instance.service_template_id) {
-                    serviceInfo.__template_name__ = instance.bk_module_name
-                }
+                this.templateInfo.serviceTemplateName = instance.service_template_id ? instance.bk_module_name : this.$t('无')
                 const categories = await this.getServiceCategories()
                 const firstCategory = categories.find(category => category.secondCategory.some(second => second.id === instance.service_category_id)) || {}
                 const secondCategory = (firstCategory.secondCategory || []).find(second => second.id === instance.service_category_id) || {}
-                serviceInfo.__service_category__ = `${firstCategory.name || '--'} / ${secondCategory.name || '--'}`
-                return serviceInfo
+                this.templateInfo.serviceCategory = `${firstCategory.name || '--'} / ${secondCategory.name || '--'}`
             },
             async getServiceCategories () {
                 if (this.categoryMap.hasOwnProperty(this.business)) {
@@ -355,10 +451,10 @@
                 } else {
                     try {
                         const data = await this.$store.dispatch('serviceClassification/searchServiceCategory', {
-                            params: this.$injectMetadata()
+                            params: { bk_biz_id: this.business }
                         })
                         const categories = this.collectServiceCategories(data.info)
-                        this.$store.commit('businessTopology/setCategories', {
+                        this.$store.commit('businessHost/setCategories', {
                             id: this.business,
                             categories: categories
                         })
@@ -412,16 +508,20 @@
                         this.first = firstCategory.id
                         this.second = second
                     }
-                    this.updateCategoryProperty({
-                        editable: !this.withTemplate
-                    })
                 }
                 this.type = 'update'
+            },
+            handleChangeFirstCategory (id, category) {
+                if (!this.secondCategories.length) {
+                    this.second = ''
+                    this.$set(this.$refs.form.values, 'service_category_id', '')
+                }
             },
             handleChangeCategory (id, category) {
                 this.$set(this.$refs.form.values, 'service_category_id', id)
             },
             async handleSubmit (value) {
+                if (!await this.$validator.validateAll()) return
                 const promiseMap = {
                     set: this.updateSetInstance,
                     module: this.updateModuleInstance
@@ -431,9 +531,10 @@
                     module: 'bk_module_name'
                 }
                 try {
-                    await (promiseMap[this.modelId] || this.updateCustomInstance)(this.$injectMetadata(value))
+                    await (promiseMap[this.modelId] || this.updateCustomInstance)({ ...value, bk_biz_id: this.business })
                     this.selectedNode.data.bk_inst_name = value[nameMap[this.modelId] || 'bk_inst_name']
                     this.instance = Object.assign({}, this.instance, value)
+                    this.getServiceInfo(this.instance)
                     this.type = 'details'
                     this.$success(this.$t('修改成功'))
                 } catch (e) {
@@ -451,8 +552,6 @@
                 })
             },
             updateModuleInstance (value) {
-                delete value.__template_name__
-                delete value.__service_category__
                 return this.$store.dispatch('objectModule/updateModule', {
                     bizId: this.business,
                     setId: this.selectedNode.parent.data.bk_inst_id,
@@ -464,9 +563,6 @@
                     config: {
                         requestId: 'updateNodeInstance'
                     }
-                }).then(async () => {
-                    const serviceInfo = await this.getServiceInfo({ service_category_id: value.service_category_id || this.instance.service_category_id })
-                    Object.assign(this.instance, serviceInfo)
                 })
             },
             updateCustomInstance (value) {
@@ -482,8 +578,9 @@
             handleCancel () {
                 this.type = 'details'
             },
-            handleDelete () {
-                if (this.selectedNode.data.host_count) {
+            async handleDelete () {
+                const count = await this.getSelectedNodeHostCount()
+                if (count) {
                     this.$error(this.$t('目标包含主机, 不允许删除'))
                     return
                 }
@@ -516,7 +613,7 @@
                     setId: this.selectedNode.data.bk_inst_id,
                     config: {
                         requestId: 'deleteNodeInstance',
-                        data: this.$injectMetadata({})
+                        data: { bk_biz_id: this.business }
                     }
                 })
             },
@@ -527,7 +624,7 @@
                     moduleId: this.selectedNode.data.bk_inst_id,
                     config: {
                         requestId: 'deleteNodeInstance',
-                        data: this.$injectMetadata({})
+                        data: { bk_biz_id: this.business }
                     }
                 })
             },
@@ -537,7 +634,7 @@
                     instId: this.selectedNode.data.bk_inst_id,
                     config: {
                         requestId: 'deleteNodeInstance',
-                        data: this.$injectMetadata()
+                        data: { bk_biz_id: this.business }
                     }
                 })
             },
@@ -547,7 +644,7 @@
                         'font-size': '14px'
                     },
                     domProps: {
-                        innerHTML: this.$tc('解除模板影响', this.flattenedInstance.__template_name__, { name: this.flattenedInstance.__template_name__ })
+                        innerHTML: this.$tc('解除模板影响', this.templateInfo.serviceTemplateName, { name: this.templateInfo.serviceTemplateName })
                     }
                 })
                 this.$bkInfo({
@@ -557,35 +654,205 @@
                         await this.$store.dispatch('serviceInstance/removeServiceTemplate', {
                             config: {
                                 requestId: 'removeServiceTemplate',
-                                data: this.$injectMetadata({
-                                    bk_module_id: this.instance.bk_module_id
-                                })
+                                data: {
+                                    bk_module_id: this.instance.bk_module_id,
+                                    bk_biz_id: this.business
+                                }
                             }
                         })
                         this.selectedNode.data.service_template_id = 0
                         this.instance.service_template_id = null
-                        this.instance.__template_name__ = '--'
+                        this.templateInfo.serviceTemplateName = this.$t('无')
                         this.disabledProperties = []
                     }
                 })
             },
+            async getDiffTemplateAndInstances () {
+                try {
+                    const data = await this.$store.dispatch('setSync/diffTemplateAndInstances', {
+                        bizId: this.business,
+                        setTemplateId: this.instance.set_template_id,
+                        params: {
+                            bk_set_ids: [this.instance.bk_set_id]
+                        },
+                        config: {
+                            requestId: 'diffTemplateAndInstances'
+                        }
+                    })
+                    const diff = data.difference ? (data.difference[0] || {}).module_diffs : []
+                    const len = diff.filter(_module => _module.diff_type !== 'unchanged').length
+                    this.hasChange = !!len
+                } catch (e) {
+                    console.error(e)
+                    this.hasChange = false
+                }
+            },
+            handleSyncSetTemplate () {
+                this.$store.commit('setFeatures/setSyncIdMap', {
+                    id: `${this.business}_${this.instance.set_template_id}`,
+                    instancesId: [this.instance.bk_set_id]
+                })
+                this.$routerActions.redirect({
+                    name: 'setSync',
+                    params: {
+                        setTemplateId: this.instance.set_template_id,
+                        moduleId: this.selectedNode.data.bk_inst_id
+                    },
+                    history: true
+                })
+            },
             goServiceTemplate () {
-                this.$router.push({
+                this.$routerActions.redirect({
                     name: 'operationalTemplate',
                     params: {
                         templateId: this.instance.service_template_id,
                         moduleId: this.selectedNode.data.bk_inst_id
+                    },
+                    query: {
+                        node: this.selectedNode.id,
+                        tab: 'nodeInfo'
+                    },
+                    history: true
+                })
+            },
+            goSetTemplate () {
+                this.$routerActions.redirect({
+                    name: 'setTemplateConfig',
+                    params: {
+                        mode: 'view',
+                        templateId: this.instance.set_template_id,
+                        moduleId: this.selectedNode.data.bk_inst_id
+                    },
+                    query: {
+                        node: this.selectedNode.id,
+                        tab: 'nodeInfo'
+                    },
+                    history: true
+                })
+            },
+            async getSelectedNodeHostCount () {
+                const defaultModel = ['biz', 'set', 'module', 'host', 'object']
+                const modelInstKey = {
+                    biz: 'bk_biz_id',
+                    set: 'bk_set_id',
+                    module: 'bk_module_id',
+                    host: 'bk_host_id',
+                    object: 'bk_inst_id'
+                }
+                const conditionParams = {
+                    condition: defaultModel.map(model => {
+                        return {
+                            bk_obj_id: model,
+                            condition: [],
+                            fields: []
+                        }
+                    })
+                }
+                const selectedNode = this.selectedNode
+                const selectedModel = defaultModel.includes(selectedNode.data.bk_obj_id) ? selectedNode.data.bk_obj_id : 'object'
+                const selectedModelCondition = conditionParams.condition.find(model => model.bk_obj_id === selectedModel)
+                selectedModelCondition.condition.push({
+                    field: modelInstKey[selectedModel],
+                    operator: '$eq',
+                    value: selectedNode.data.bk_inst_id
+                })
+                const data = await this.$store.dispatch('hostSearch/searchHost', {
+                    params: {
+                        ...conditionParams,
+                        bk_biz_id: this.business,
+                        ip: {
+                            flag: 'bk_host_innerip|bk_host_outer',
+                            exact: 0,
+                            data: []
+                        },
+                        page: {
+                            start: 0,
+                            limit: 1,
+                            sort: ''
+                        }
+                    },
+                    config: {
+                        requestId: 'searchHosts',
+                        cancelPrevious: true
                     }
                 })
+                return data && data.count
             }
         }
     }
 </script>
 
 <style lang="scss" scoped>
-    .topology-details {
-        /deep/ .details-options {
-            padding: 28px 18px 0 0;
+    .permission-tips {
+        position: absolute;
+        top: 35%;
+        left: 50%;
+        transform: translate(-50%, -50%);
+    }
+    .node-info {
+        height: 100%;
+        margin: 0 -20px;
+    }
+    .template-info {
+        font-size: 14px;
+        color: #63656e;
+        padding: 20px 0 20px 36px;
+        margin: 0 20px;
+        border-bottom: 1px solid #F0F1F5;
+        .info-item {
+            width: 50%;
+            max-width: 400px;
+            line-height: 26px;
+        }
+        .name {
+            position: relative;
+            padding-right: 16px;
+            &::after {
+                content: ":";
+                position: absolute;
+                right: 10px;
+            }
+        }
+        .value {
+            width: calc(80% - 10px);
+            padding-right: 10px;
+            .text {
+                @include inlineBlock;
+                @include ellipsis;
+                max-width: calc(100% - 16px);
+                font-size: 14px;
+            }
+            .template-value {
+                width: 100%;
+                font-size: 0;
+                color: #3a84ff;
+                cursor: pointer;
+                &.set-template {
+                    width: auto;
+                    max-width: calc(100% - 75px);
+                }
+            }
+            .icon-cc-share {
+                @include inlineBlock;
+                font-size: 12px;
+                margin-left: 4px;
+            }
+        }
+    }
+    .topology-details.details-layout {
+        padding: 0;
+        /deep/ {
+            .property-group {
+                padding-left: 36px;
+            }
+            .property-list {
+                padding-left: 20px;
+            }
+            .details-options {
+                width: 100%;
+                margin: 0;
+                padding-left: 56px;
+            }
         }
     }
     .property-value {
@@ -605,9 +872,16 @@
         font-size: 12px;
         color: #63656E;
     }
-    .topology-form {
-        /deep/ .property-item {
-            max-width: 554px !important;
+    .service-category {
+        font-size: 12px;
+        padding: 20px 0 24px 36px;
+        margin: 0 20px;
+        border-bottom: 1px solid #dcdee5;
+        .selector-item {
+            position: relative;
+            width: 50%;
+            max-width: 554px;
+            padding-right: 54px;
         }
         .category-selector {
             width: calc(50% - 5px);
@@ -615,12 +889,57 @@
                 margin-left: 10px;
             }
         }
+        .second-category-errors {
+            position: absolute;
+            top: 100%;
+            left: 0;
+            margin-left: calc(50% - 18px);
+            line-height: 14px;
+            font-size: 12px;
+            color: #ff5656;
+            max-width: 100%;
+            @include ellipsis;
+        }
+    }
+    .topology-form {
+        /deep/ {
+            .form-groups {
+                padding: 0 20px;
+            }
+            .property-list {
+                margin-left: 36px;
+            }
+            .property-item {
+                max-width: 554px !important;
+            }
+            .form-options {
+                padding: 10px 0 0 36px;
+            }
+        }
+    }
+    .button-edit {
+        min-width: 76px;
+        margin-right: 4px;
     }
     .btn-delete{
         min-width: 76px;
-        &:hover {
-            color: #ff5656;
-            border-color: #ff5656;
+    }
+    .sync-set-btn {
+        position: relative;
+        height: 26px;
+        line-height: 24px;
+        padding: 0 10px;
+        font-size: 12px;
+        margin-top: -2px;
+        &.has-change::before {
+            content: '';
+            position: absolute;
+            top: -4px;
+            right: -4px;
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background-color: #EA3636;
         }
     }
 </style>

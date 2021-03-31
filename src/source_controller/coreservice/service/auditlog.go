@@ -13,32 +13,42 @@
 package service
 
 import (
-	"configcenter/src/common/mapstr"
+	"configcenter/src/common"
+	"configcenter/src/common/blog"
+	"configcenter/src/common/http/rest"
 	"configcenter/src/common/metadata"
-	"configcenter/src/source_controller/coreservice/core"
 )
 
-func (s *coreService) CreateAuditLog(params core.ContextParams, pathParams, queryParams ParamsGetter, data mapstr.MapStr) (interface{}, error) {
-	inputData := struct {
-		Data []metadata.SaveAuditLogParams `json:"data"`
-	}{}
-	if err := data.MarshalJSONInto(&inputData); nil != err {
-		return nil, err
+func (s *coreService) CreateAuditLog(ctx *rest.Contexts) {
+	inputData := new(metadata.CreateAuditLogParam)
+
+	if err := ctx.DecodeInto(inputData); nil != err {
+		ctx.RespAutoError(err)
+		return
 	}
-	return nil, s.core.AuditOperation().CreateAuditLog(params, inputData.Data...)
+
+	if err := s.core.AuditOperation().CreateAuditLog(ctx.Kit, inputData.Data...); nil != err {
+		blog.Errorf("CreateAuditLog err:%v, rid:%s", err, ctx.Kit.Rid)
+		ctx.RespAutoError(ctx.Kit.CCError.CCError(common.CCErrAuditSaveLogFailed))
+		return
+	}
+
+	ctx.RespEntity(nil)
 }
 
-func (s *coreService) SearchAuditLog(ctx core.ContextParams, pathParams, queryParams ParamsGetter, data mapstr.MapStr) (interface{}, error) {
-	inputData := metadata.QueryInput{}
-	if err := data.MarshalJSONInto(&inputData); nil != err {
-		return nil, err
+func (s *coreService) SearchAuditLog(ctx *rest.Contexts) {
+	inputData := metadata.QueryCondition{}
+	if err := ctx.DecodeInto(&inputData); nil != err {
+		ctx.RespAutoError(err)
+		return
 	}
-	auditlogs, count, err := s.core.AuditOperation().SearchAuditLog(ctx, inputData)
-	return struct {
-		Count uint64                  `json:"count"`
-		Info  []metadata.OperationLog `json:"info"`
-	}{
-		Count: count,
-		Info:  auditlogs,
-	}, err
+
+	auditLogs, count, err := s.core.AuditOperation().SearchAuditLog(ctx.Kit, inputData)
+	if err != nil {
+		blog.Errorf("SearchAuditLog err:%v, rid:%s", err, ctx.Kit.Rid)
+		ctx.RespAutoError(ctx.Kit.CCError.CCError(common.CCErrAuditSelectFailed))
+		return
+	}
+
+	ctx.RespEntityWithCount(int64(count), auditLogs)
 }

@@ -63,14 +63,26 @@ func GetInt64ByInterface(a interface{}) (int64, error) {
 	switch a.(type) {
 	case int:
 		id = int64(a.(int))
+	case int8:
+		return int64(a.(int8)), nil
+	case int16:
+		return int64(a.(int16)), nil
 	case int32:
 		id = int64(a.(int32))
 	case int64:
 		id = int64(a.(int64))
+	case uint:
+		id = int64(a.(uint))
+	case uint8:
+		return int64(a.(uint8)), nil
+	case uint16:
+		return int64(a.(uint16)), nil
+	case uint32:
+		id = int64(a.(uint32))
+	case uint64:
+		id = int64(a.(uint64))
 	case json.Number:
-		var tmpID int64
-		tmpID, err = a.(json.Number).Int64()
-		id = int64(tmpID)
+		id, err = a.(json.Number).Int64()
 	case float64:
 		tmpID := a.(float64)
 		id = int64(tmpID)
@@ -118,37 +130,6 @@ func GetFloat64ByInterface(a interface{}) (float64, error) {
 		return i.Float64()
 	default:
 		return 0, errors.New("not numeric")
-	}
-}
-
-func GetTypeSensitiveUInt64(v interface{}) (uint64, bool) {
-	switch tv := v.(type) {
-	case int8:
-		return uint64(tv), true
-	case int16:
-		return uint64(tv), true
-	case int32:
-		return uint64(tv), true
-	case int64:
-		return uint64(tv), true
-	case int:
-		return uint64(tv), true
-	case uint8:
-		return uint64(tv), true
-	case uint16:
-		return uint64(tv), true
-	case uint32:
-		return uint64(tv), true
-	case uint64:
-		return uint64(tv), true
-	case uint:
-		return uint64(tv), true
-	case float32:
-		return uint64(tv), true
-	case float64:
-		return uint64(tv), true
-	default:
-		return 0, false
 	}
 }
 
@@ -261,4 +242,79 @@ func SplitStrField(str, sep string) []string {
 		return nil
 	}
 	return strings.Split(str, sep)
+}
+
+// SliceInterfaceToInt64 将interface切片转化为int64切片,且interface的真实类型可以是任何整数类型.
+// 失败则返回nil,error.
+func SliceInterfaceToInt64(faceSlice []interface{}) ([]int64,error){
+	// 预分配空间.
+	var results = make([]int64,len(faceSlice))
+
+	// 转化操作.
+	for i,item := range faceSlice{
+		switch val := item.(type) {
+		case int64:
+			results[i] = val
+		case int:
+			results[i] = int64(val)
+		case int8:
+			results[i] = int64(val)
+		case int16:
+			results[i] = int64(val)
+		case int32:
+			results[i] = int64(val)
+		case uint:
+			results[i] = int64(val)
+		case uint8:
+			results[i] = int64(val)
+		case uint16:
+			results[i] = int64(val)
+		case uint32:
+			results[i] = int64(val)
+		case uint64:
+			results[i] = int64(val)
+		default:
+			return nil,errors.New("can't convert to int64")
+		}
+	}
+	return results,nil
+}
+
+
+// SliceInterfaceToBool将interface切片转化为string切片,且interface的真实类型必须是string.
+// 失败则返回nil,error.
+func SliceInterfaceToString(faceSlice []interface{}) ([]string,error){
+	// 预分配空间.
+	var results = make([]string,len(faceSlice))
+
+	// 转化操作.
+	for i,item := range faceSlice{
+		var ok bool
+
+		//如果转化失败则返回错误.
+		if results[i],ok = item.(string) ; !ok {
+			return nil,errors.New("can't convert to string")
+		}
+
+	}
+	return results,nil
+}
+
+// SliceInterfaceToBool将interface切片转化为bool切片,且interface的真实类型必须是bool.
+// 失败则返回nil,error.
+func SliceInterfaceToBool(faceSlice []interface{}) ([]bool,error){
+	// 预分配空间.
+	var results = make([]bool,len(faceSlice))
+
+	// 转化操作.
+	for i,item := range faceSlice{
+		 var ok bool
+
+		 //如果转化失败则返回错误.
+		 if results[i],ok = item.(bool) ; !ok {
+			 return nil,errors.New("can't convert to bool")
+		 }
+
+	}
+	return results,nil
 }

@@ -16,27 +16,24 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"os"
 	"time"
 
-	"configcenter/src/auth"
-	"configcenter/src/auth/authcenter"
-	"configcenter/src/auth/extensions"
+	"configcenter/src/ac/extensions"
 	"configcenter/src/common"
 	"configcenter/src/common/backbone"
 	cc "configcenter/src/common/backbone/configcenter"
 	"configcenter/src/common/blog"
 	"configcenter/src/common/types"
-	"configcenter/src/common/version"
 	"configcenter/src/scene_server/host_server/app/options"
+	"configcenter/src/scene_server/host_server/logics"
 	hostsvc "configcenter/src/scene_server/host_server/service"
 	"configcenter/src/storage/dal/redis"
 
 	"github.com/emicklei/go-restful"
 )
 
-func Run(ctx context.Context, op *options.ServerOption) error {
-	svrInfo, err := newServerInfo(op)
+func Run(ctx context.Context, cancel context.CancelFunc, op *options.ServerOption) error {
+	svrInfo, err := types.NewServerInfo(op.ServConf)
 	if err != nil {
 		blog.Errorf("wrap server info failed, err: %v", err)
 		return fmt.Errorf("wrap server info failed, err: %v", err)
@@ -59,7 +56,7 @@ func Run(ctx context.Context, op *options.ServerOption) error {
 	}
 	configReady := false
 	for sleepCnt := 0; sleepCnt < common.APPConfigWaitTime; sleepCnt++ {
-		if "" != hostSrv.Config.Redis.Address {
+		if nil != hostSrv.Config {
 			configReady = true
 			break
 		}
@@ -70,38 +67,43 @@ func Run(ctx context.Context, op *options.ServerOption) error {
 		blog.Infof("waiting config timeout.")
 		return errors.New("configuration item not found")
 	}
+
+	hostSrv.Config.Redis, err = engine.WithRedis()
+	if err != nil {
+		return err
+	}
+
 	cacheDB, err := redis.NewFromConfig(hostSrv.Config.Redis)
 	if err != nil {
 		blog.Errorf("new redis client failed, err: %s", err.Error())
 		return fmt.Errorf("new redis client failed, err: %s", err.Error())
 	}
 
-	blog.Info("host server auth config is: %+v", hostSrv.Config.Auth)
-	authorizer, err := auth.NewAuthorize(nil, hostSrv.Config.Auth, engine.Metric().Registry())
-	if err != nil {
-		blog.Errorf("new host authorizer failed, err: %+v", err)
-		return fmt.Errorf("new host authorizer failed, err: %+v", err)
-	}
-	authManager := extensions.NewAuthManager(engine.CoreAPI, authorizer)
+	authManager := extensions.NewAuthManager(engine.CoreAPI)
 	service.AuthManager = authManager
 	service.Engine = engine
-	service.Config = &hostSrv.Config
+	service.Config = hostSrv.Config
 	service.CacheDB = cacheDB
+	service.EnableTxn = op.EnableTxn
+	service.Logic = logics.NewLogics(engine, cacheDB, authManager)
 	hostSrv.Core = engine
 	hostSrv.Service = service
 
-	if err := backbone.StartServer(ctx, engine, service.WebService(), true); err != nil {
+	err = backbone.StartServer(ctx, cancel, engine, service.WebService(), true)
+	if err != nil {
 		blog.Errorf("start backbone failed, err: %+v", err)
 		return err
 	}
 
-	go hostSrv.Service.InitBackground()
-	select {}
+	select {
+	case <-ctx.Done():
+	}
+	return nil
 }
 
 type HostServer struct {
 	Core    *backbone.Engine
-	Config  options.Config
+	Config  *options.Config
 	Service *hostsvc.Service
 }
 
@@ -110,43 +112,7 @@ func (h *HostServer) WebService() *restful.Container {
 }
 
 func (h *HostServer) onHostConfigUpdate(previous, current cc.ProcessConfig) {
-	var err error
-
-	h.Config.Redis.Address = current.ConfigMap["redis.host"]
-	h.Config.Redis.Database = current.ConfigMap["redis.database"]
-	h.Config.Redis.Password = current.ConfigMap["redis.pwd"]
-	h.Config.Redis.Port = current.ConfigMap["redis.port"]
-	h.Config.Redis.MasterName = current.ConfigMap["redis.user"]
-
-	h.Config.Auth, err = authcenter.ParseConfigFromKV("auth", current.ConfigMap)
-	if err != nil {
-		blog.Warnf("parse auth center config failed: %v", err)
+	if h.Config == nil {
+		h.Config = new(options.Config)
 	}
-}
-
-func newServerInfo(op *options.ServerOption) (*types.ServerInfo, error) {
-	ip, err := op.ServConf.GetAddress()
-	if err != nil {
-		return nil, err
-	}
-
-	port, err := op.ServConf.GetPort()
-	if err != nil {
-		return nil, err
-	}
-
-	hostname, err := os.Hostname()
-	if err != nil {
-		return nil, err
-	}
-
-	info := &types.ServerInfo{
-		IP:       ip,
-		Port:     port,
-		HostName: hostname,
-		Scheme:   "http",
-		Version:  version.GetVersion(),
-		Pid:      os.Getpid(),
-	}
-	return info, nil
 }

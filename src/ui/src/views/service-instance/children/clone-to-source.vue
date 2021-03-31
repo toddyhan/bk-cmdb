@@ -1,6 +1,6 @@
 <template>
     <div class="source-layout">
-        <p class="source-tips">{{$t('源实例主机提示')}}</p>
+        <!-- <p class="source-tips">{{$t('源实例主机提示')}}</p> -->
         <div class="table-options">
             <bk-button class="options-button"
                 :disabled="!checked.length"
@@ -8,77 +8,69 @@
                 {{$t('批量编辑')}}
             </bk-button>
         </div>
-        <bk-table class="source-table"
-            :data="flattenList"
-            @selection-change="handleSelectChange">
-            <bk-table-column type="selection" align="center" width="60" fixed class-name="bk-table-selection"></bk-table-column>
-            <bk-table-column v-for="column in header"
-                :key="column.id"
-                :prop="column.id"
-                :label="column.name">
-            </bk-table-column>
-            <bk-table-column :label="$t('操作')" fixed="right">
-                <template slot-scope="{ row }">
-                    <button class="text-primary mr10" v-if="isRepeat(row)"
-                        @click="handleEditProcess(row)">
-                        <i class="bk-icon icon-exclamation-circle"></i>
-                        {{$t('请编辑')}}
-                    </button>
-                    <button class="text-primary mr10" v-else
-                        @click="handleEditProcess(row)">
-                        {{$t('编辑')}}
-                    </button>
-                </template>
-            </bk-table-column>
-        </bk-table>
-        <div class="page-options">
-            <span
-                v-cursor="{
-                    active: !$isAuthorized($OPERATION.C_SERVICE_INSTANCE),
-                    auth: [$OPERATION.C_SERVICE_INSTANCE]
-                }">
-                <bk-button class="options-button" theme="primary"
-                    :disabled="!!repeatedProcesses.length || !$isAuthorized($OPERATION.C_SERVICE_INSTANCE)"
+        <div class="source-table" ref="sourceTables">
+            <bk-table
+                :data="cloneProcesses"
+                @selection-change="handleSelectChange">
+                <bk-table-column type="selection" align="center" width="60" fixed class-name="bk-table-selection"></bk-table-column>
+                <bk-table-column v-for="column in header"
+                    :key="column.id"
+                    :prop="column.id"
+                    :label="column.name"
+                    show-overflow-tooltip>
+                    <template slot-scope="{ row }">
+                        <cmdb-property-value v-if="column.id !== 'bind_info'"
+                            :value="row[column.id]"
+                            :show-unit="false"
+                            :property="column.property">
+                        </cmdb-property-value>
+                        <process-bind-info-value v-else
+                            :value="row[column.id]"
+                            :property="column.property">
+                        </process-bind-info-value>
+                    </template>
+                </bk-table-column>
+                <bk-table-column :label="$t('操作')" fixed="right">
+                    <template slot-scope="{ row }">
+                        <button class="text-primary mr10" v-if="isRepeat(row)"
+                            @click="handleEditProcess(row)">
+                            <i class="bk-icon icon-exclamation-circle"></i>
+                            {{$t('请编辑')}}
+                        </button>
+                        <button class="text-primary mr10" v-else
+                            @click="handleEditProcess(row)">
+                            {{$t('编辑')}}
+                        </button>
+                    </template>
+                </bk-table-column>
+            </bk-table>
+        </div>
+        <div class="page-options" :class="{ 'is-sticky': hasScrollbar }">
+            <cmdb-auth :auth="{ type: $OPERATION.C_SERVICE_INSTANCE, relation: [bizId] }">
+                <bk-button slot-scope="{ disabled }"
+                    class="options-button"
+                    theme="primary"
+                    :disabled="!!repeatedProcesses.length || disabled"
                     @click="doClone">
                     {{$t('确定')}}
                 </bk-button>
-            </span>
+            </cmdb-auth>
             <bk-button class="options-button" @click="backToModule">{{$t('取消')}}</bk-button>
         </div>
-        <bk-sideslider
-            v-transfer-dom
-            :is-show.sync="processForm.show"
-            :title="processForm.title"
-            :width="800"
-            :before-close="handleBeforeClose">
-            <cmdb-form slot="content"
-                ref="processForm"
-                v-if="processForm.show"
-                :properties="properties"
-                :property-groups="propertyGroups"
-                :object-unique="processForm.type === 'single' ? [] : propertyUnique"
-                :inst="processForm.instance"
-                @on-submit="handleSubmit"
-                @on-cancel="handleBeforeClose">
-                <template slot="bind_ip">
-                    <cmdb-input-select
-                        :disabled="checkDisabled"
-                        :name="'bindIp'"
-                        :placeholder="$t('请选择或输入IP')"
-                        :options="processBindIp"
-                        :validate="validateRules"
-                        v-model="bindIp">
-                    </cmdb-input-select>
-                </template>
-            </cmdb-form>
-        </bk-sideslider>
     </div>
 </template>
 
 <script>
-    import { MENU_BUSINESS_SERVICE_TOPOLOGY } from '@/dictionary/menu-symbol'
+    import { mapGetters } from 'vuex'
+    import { processTableHeader } from '@/dictionary/table-header'
+    import { addResizeListener, removeResizeListener } from '@/utils/resize-events'
+    import ProcessBindInfoValue from '@/components/service/process-bind-info-value'
+    import ProcessForm from '@/components/service/form/form.js'
     export default {
         name: 'clone-to-source',
+        components: {
+            ProcessBindInfoValue
+        },
         props: {
             sourceProcesses: {
                 type: Array,
@@ -92,39 +84,24 @@
                 checked: [],
                 cloneProcesses: this.$tools.clone(this.sourceProcesses),
                 properties: [],
-                propertyGroups: [],
                 propertyUnique: [],
-                processForm: {
-                    show: false,
-                    type: 'single',
-                    title: '',
-                    instance: {}
-                },
-                processBindIp: [],
-                bindIp: ''
+                hasScrollbar: false,
+                formValuesReflect: {},
+                processFormType: 'single'
             }
         },
         computed: {
+            ...mapGetters('objectBiz', ['bizId']),
             header () {
-                const display = [
-                    'bk_func_name',
-                    'bk_process_name',
-                    'bk_start_param_regex',
-                    'bind_ip',
-                    'port',
-                    'work_path'
-                ]
-                const header = display.map(id => {
+                const header = processTableHeader.map(id => {
                     const property = this.properties.find(property => property.bk_property_id === id) || {}
                     return {
                         id: property.bk_property_id,
-                        name: property.bk_property_name
+                        name: this.$tools.getHeaderPropertyName(property),
+                        property
                     }
                 })
                 return header
-            },
-            flattenList () {
-                return this.$tools.flattenList(this.properties, this.cloneProcesses)
             },
             norepeatProperties () {
                 const unique = this.propertyUnique.find(unique => unique.must_check) || {}
@@ -140,45 +117,39 @@
                         })
                 })
             },
-            bindIpProperty () {
-                return this.properties.find(property => property['bk_property_id'] === 'bind_ip') || {}
-            },
             hostId () {
                 return parseInt(this.$route.params.hostId)
             },
-            validateRules () {
-                const rules = {}
-                if (this.bindIpProperty.isrequired) {
-                    rules['required'] = true
-                }
-                rules['regex'] = this.bindIpProperty.option
-                return rules
+            bindInfoProperty () {
+                return this.properties.find(property => property.bk_property_id === 'bind_info') || {}
             },
-            checkDisabled () {
-                const property = this.bindIpProperty
-                if (this.processForm.type === 'create') {
-                    return false
+            bindInfo: {
+                get () {
+                    return this.formValuesReflect.bind_info || []
+                },
+                set (values) {
+                    this.formValuesReflect.bind_info = values
                 }
-                return !property.editable || property.isreadonly
             }
         },
         watch: {
             sourceProcesses (source) {
                 this.cloneProcesses = this.$tools.clone(source)
-            },
-            bindIp (value) {
-                this.$refs.processForm.values.bind_ip = value
             }
+        },
+        mounted () {
+            addResizeListener(this.$refs.sourceTables, this.resizeHandler)
+        },
+        beforeDestroy () {
+            removeResizeListener(this.$refs.sourceTables, this.resizeHandler)
         },
         async created () {
             try {
-                const [properties, propertyGroups, propertyUnique] = await Promise.all([
+                const [properties, propertyUnique] = await Promise.all([
                     this.getProcessProperties(),
-                    this.getProcessPropertyGroups(),
                     this.getProcessPropertyUnique()
                 ])
                 this.properties = properties
-                this.propertyGroups = propertyGroups
                 this.propertyUnique = propertyUnique
             } catch (e) {
                 console.error(e)
@@ -194,17 +165,6 @@
                     },
                     config: {
                         requestId: 'get_service_process_properties',
-                        fromCache: true
-                    }
-                })
-            },
-            getProcessPropertyGroups () {
-                const action = 'objectModelFieldGroup/searchGroup'
-                return this.$store.dispatch(action, {
-                    objId: 'process',
-                    params: {},
-                    config: {
-                        requestId: 'get_service_process_property_groups',
                         fromCache: true
                     }
                 })
@@ -227,113 +187,62 @@
                 this.checked = selection.map(row => row.bk_process_id)
             },
             handleBatchEdit () {
-                this.getInstanceIpByHost(this.hostId)
-                this.processForm.type = 'batch'
-                this.processForm.title = this.$t('批量编辑')
-                this.processForm.instance = {}
-                this.processForm.show = true
-                this.$nextTick(() => {
-                    this.bindIp = this.$tools.getInstFormValues(this.properties, this.processForm.instance)['bind_ip']
-                    const { processForm } = this.$refs
-                    this.processForm.unwatch = processForm.$watch(() => {
-                        return processForm.values.bk_func_name
-                    }, (newVal, oldValue) => {
-                        if (processForm.values.bk_process_name === oldValue) {
-                            processForm.values.bk_process_name = newVal
-                        }
-                    })
+                this.processFormType = 'batch'
+                ProcessForm.show({
+                    type: 'update',
+                    title: this.$t('批量编辑'),
+                    instance: {},
+                    hostId: this.hostId,
+                    bizId: this.bizId,
+                    submitHandler: this.handleSubmit,
+                    invisibleProperties: ['bind_info']
                 })
             },
             handleEditProcess (item) {
-                this.getInstanceIpByHost(this.hostId)
-                this.processForm.type = 'single'
-                this.processForm.title = `${this.$t('编辑进程')}${item.bk_process_name}`
-                this.processForm.instance = this.cloneProcesses.find(target => target.bk_process_id === item.bk_process_id)
-                this.processForm.show = true
-                this.$nextTick(() => {
-                    this.bindIp = this.$tools.getInstFormValues(this.properties, this.processForm.instance)['bind_ip']
-                    const { processForm } = this.$refs
-                    this.processForm.unwatch = processForm.$watch(() => {
-                        return processForm.values.bk_func_name
-                    }, (newVal, oldValue) => {
-                        if (processForm.values.bk_process_name === oldValue) {
-                            processForm.values.bk_process_name = newVal
-                        }
-                    })
+                this.processFormType = 'single'
+                ProcessForm.show({
+                    type: 'update',
+                    title: `${this.$t('编辑进程')}${item.bk_process_name}`,
+                    instance: item,
+                    hostId: this.hostId,
+                    bizId: this.bizId,
+                    submitHandler: this.handleSubmit
                 })
             },
-            async getInstanceIpByHost (hostId) {
-                try {
-                    const instanceIpMap = this.$store.state.businessTopology.instanceIpMap
-                    let res = null
-                    if (instanceIpMap.hasOwnProperty(hostId)) {
-                        res = instanceIpMap[hostId]
-                    } else {
-                        res = await this.$store.dispatch('serviceInstance/getInstanceIpByHost', {
-                            hostId,
-                            config: {
-                                requestId: 'getInstanceIpByHost'
-                            }
-                        })
-                        this.$store.commit('businessTopology/setInstanceIp', { hostId, res })
-                    }
-                    this.processBindIp = res.options.map(ip => {
-                        return {
-                            id: ip,
-                            name: ip
-                        }
-                    })
-                } catch (e) {
-                    this.processBindIp = []
-                    console.error(e)
-                }
+            async validateCustomComponent () {
+                const { bindInfo } = this.$refs
+                const customComponents = [bindInfo]
+                const validatePromise = []
+                customComponents.forEach(component => {
+                    validatePromise.push(component.$validator.validateAll())
+                    validatePromise.push(component.$validator.validateScopes())
+                })
+                const results = await Promise.all(validatePromise)
+                return results.every(result => result)
             },
-            handleSubmit (values, changedValues) {
-                if (this.processForm.type === 'single') {
-                    Object.assign(this.processForm.instance, changedValues)
+            handleSubmit (values, changedValues, instance) {
+                if (this.processFormType === 'single') {
+                    Object.assign(instance, changedValues)
                 } else {
                     this.cloneProcesses.forEach(instance => {
                         Object.assign(instance, changedValues)
                     })
                 }
-                this.processForm.show = false
-            },
-            handleCloseProcessForm () {
-                this.processForm.show = false
-                this.processForm.instance = {}
-            },
-            handleBeforeClose () {
-                const changedValues = this.$refs.processForm.changedValues
-                if (Object.keys(changedValues).length) {
-                    return new Promise((resolve, reject) => {
-                        this.$bkInfo({
-                            title: this.$t('确认退出'),
-                            subTitle: this.$t('退出会导致未保存信息丢失'),
-                            extCls: 'bk-dialog-sub-header-center',
-                            confirmFn: () => {
-                                this.handleCloseProcessForm()
-                            },
-                            cancelFn: () => {
-                                resolve(false)
-                            }
-                        })
-                    })
-                }
-                this.handleCloseProcessForm()
             },
             async doClone () {
                 try {
                     await this.$store.dispatch('serviceInstance/createProcServiceInstanceWithRaw', {
-                        params: this.$injectMetadata({
+                        params: {
                             name: this.$parent.module.bk_module_name,
+                            bk_biz_id: this.bizId,
                             bk_module_id: this.$route.params.moduleId,
                             instances: [
                                 {
-                                    bk_host_id: this.$route.params.hostId,
+                                    bk_host_id: this.hostId,
                                     processes: this.getCloneProcessValues()
                                 }
                             ]
-                        })
+                        }
                     })
                     this.$success(this.$t('克隆成功'))
                     this.backToModule()
@@ -353,11 +262,12 @@
                 })
             },
             backToModule () {
-                this.$router.replace({
-                    name: MENU_BUSINESS_SERVICE_TOPOLOGY,
-                    query: {
-                        module: this.$route.params.moduleId
-                    }
+                this.$routerActions.back()
+            },
+            resizeHandler () {
+                this.$nextTick(() => {
+                    const scroller = this.$el.parentElement
+                    this.hasScrollbar = scroller.scrollHeight > scroller.offsetHeight
                 })
             }
         }
@@ -375,12 +285,23 @@
     }
     .table-options {
         margin: 10px 0 0 0;
+        padding: 0 20px;
     }
     .page-options {
         margin: 30px 0 0 0;
+        padding: 10px 0 10px 20px;
+        position: sticky;
+        bottom: 0;
+        left: 0;
+        &.is-sticky {
+            background-color: #FFF;
+            border-top: 1px solid $borderColor;
+            z-index: 100;
+        }
     }
     .source-table {
         margin: 10px 0 0 0;
+        padding: 0 20px;
     }
     .text-primary {
         .icon-exclamation-circle {

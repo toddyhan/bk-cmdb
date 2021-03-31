@@ -42,4 +42,10 @@ const (
 
 	ProcGsekitManageInfo     = "gsekit_manage"
 	ProcGsekitManageInfoName = "GSEkit 进程管理信息"
+
+	ProcMgrGroupID   = "proc_mgr"
+	ProcMgrGroupName = "进程管理信息"
+
+	ProcNetworkProxyInfo     = "network_proxy"
+	ProcNetworkProxyInfoName = "外网代理信息"
 )

@@ -1,38 +1,33 @@
 <template>
-    <div class="group-wrapper" :style="{ 'padding-top': showFeatureTips ? '94px' : '52px' }">
-        <cmdb-main-inject
+    <div class="group-wrapper"
+        v-bkloading="{ isLoading: mainLoading }"
+        :style="{ 'padding-top': topPadding + 'px' }">
+        <cmdb-main-inject ref="mainInject"
             inject-type="prepend"
             :class="['btn-group', 'clearfix', { sticky: !!scrollTop }]">
-            <feature-tips
-                :feature-name="'model'"
-                :show-tips="showFeatureTips"
-                :desc="$t('模型顶部提示')"
-                :more-href="'https://docs.bk.tencent.com/cmdb/Introduction.html#ModelManagement'"
-                @close-tips="showFeatureTips = false">
-            </feature-tips>
+            <cmdb-tips
+                class="mb10"
+                tips-key="modelTips"
+                :more-link="'https://docs.bk.tencent.com/cmdb/Introduction.html#ModelManagement'">
+                {{$t('模型顶部提示')}}
+            </cmdb-tips>
             <div class="fl">
-                <span style="display: inline-block;"
-                    v-cursor="{
-                        active: !$isAuthorized($OPERATION.C_MODEL),
-                        auth: [$OPERATION.C_MODEL]
-                    }">
-                    <bk-button theme="primary"
-                        :disabled="!$isAuthorized($OPERATION.C_MODEL) || modelType === 'disabled'"
+                <cmdb-auth :auth="{ type: $OPERATION.C_MODEL }">
+                    <bk-button slot-scope="{ disabled }"
+                        theme="primary"
+                        :disabled="disabled || modelType === 'disabled'"
                         @click="showModelDialog()">
                         {{$t('新建模型')}}
                     </bk-button>
-                </span>
-                <span style="display: inline-block;"
-                    v-cursor="{
-                        active: !$isAuthorized($OPERATION.C_MODEL_GROUP),
-                        auth: [$OPERATION.C_MODEL_GROUP]
-                    }">
-                    <bk-button theme="default"
-                        :disabled="!$isAuthorized($OPERATION.C_MODEL_GROUP) || modelType === 'disabled'"
+                </cmdb-auth>
+                <cmdb-auth :auth="{ type: $OPERATION.C_MODEL_GROUP }">
+                    <bk-button slot-scope="{ disabled }"
+                        theme="default"
+                        :disabled="disabled || modelType === 'disabled'"
                         @click="showGroupDialog(false)">
                         {{$t('新建分组')}}
                     </bk-button>
-                </span>
+                </cmdb-auth>
             </div>
             <div class="model-type-options fr">
                 <bk-button class="model-type-button enable"
@@ -65,36 +60,44 @@
             <li class="group-item clearfix"
                 v-for="(classification, classIndex) in currentClassifications"
                 :key="classIndex">
-                <div class="group-title" v-bk-tooltips="classification.bk_classification_type === 'inner' ? groupToolTips : ''">
-                    <span>{{classification['bk_classification_name']}}</span>
-                    <span class="number">({{classification['bk_objects'].length}})</span>
-                    <template v-if="isEditable(classification)">
-                        <i class="icon-cc-add-line text-primary"
-                            :class="[{ 'disabled': !$isAuthorized($OPERATION.C_MODEL) }]"
-                            :style="{ 'margin': '0 6px' }"
-                            v-cursor="{
-                                active: !$isAuthorized($OPERATION.C_MODEL),
-                                auth: [$OPERATION.C_MODEL]
-                            }"
-                            @click="showModelDialog(classification.bk_classification_id)">
-                        </i>
-                        <i class="icon-cc-edit text-primary"
-                            :class="[{ 'disabled': !$isAuthorized($OPERATION.U_MODEL_GROUP) }]"
-                            :style="{ 'margin-right': '4px' }"
-                            v-cursor="{
-                                active: !$isAuthorized($OPERATION.U_MODEL_GROUP),
-                                auth: [$OPERATION.U_MODEL_GROUP]
-                            }"
-                            @click="showGroupDialog(true, classification)">
-                        </i>
-                        <i class="icon-cc-delete text-primary"
-                            :class="[{ 'disabled': !$isAuthorized($OPERATION.D_MODEL_GROUP) }]"
-                            v-cursor="{
-                                active: !$isAuthorized($OPERATION.D_MODEL_GROUP),
-                                auth: [$OPERATION.D_MODEL_GROUP]
-                            }"
-                            @click="deleteGroup(classification)">
-                        </i>
+                <div class="group-title">
+                    <div class="title-info"
+                        v-bk-tooltips="{
+                            disabled: isEditable(classification),
+                            content: $t('内置模型组不支持添加和修改'),
+                            placement: 'right'
+                        }">
+                        <span class="mr5">{{classification['bk_classification_name']}}</span>
+                        <span class="number">({{classification['bk_objects'].length}})</span>
+                    </div>
+                    <template v-if="isEditable(classification) && modelType === 'enable'">
+                        <cmdb-auth v-if="!mainLoading" class="group-btn ml5" :auth="{ type: $OPERATION.C_MODEL, relation: [classification.id] }">
+                            <bk-button slot-scope="{ disabled }"
+                                theme="primary"
+                                text
+                                :disabled="disabled"
+                                @click="showModelDialog(classification.bk_classification_id)">
+                                <i class="icon-cc-add-line"></i>
+                            </bk-button>
+                        </cmdb-auth>
+                        <cmdb-auth v-if="!mainLoading" class="group-btn" :auth="{ type: $OPERATION.U_MODEL_GROUP, relation: [classification.id] }">
+                            <bk-button slot-scope="{ disabled }"
+                                theme="primary"
+                                text
+                                :disabled="disabled"
+                                @click="showGroupDialog(true, classification)">
+                                <i class="icon-cc-edit"></i>
+                            </bk-button>
+                        </cmdb-auth>
+                        <cmdb-auth v-if="!mainLoading" class="group-btn" :auth="{ type: $OPERATION.D_MODEL_GROUP, relation: [classification.id] }">
+                            <bk-button slot-scope="{ disabled }"
+                                theme="primary"
+                                text
+                                :disabled="disabled"
+                                @click="deleteGroup(classification)">
+                                <i class="icon-cc-delete"></i>
+                            </bk-button>
+                        </cmdb-auth>
                     </template>
                 </div>
                 <ul class="model-list clearfix">
@@ -146,11 +149,11 @@
                                 :placeholder="$t('请输入唯一标识')"
                                 :disabled="groupDialog.isEdit"
                                 v-model.trim="groupDialog.data['bk_classification_id']"
-                                v-validate="'required|classifyId'">
+                                v-validate="'required|classifyId|length:128'">
                             </bk-input>
                             <p class="form-error" :title="errors.first('classifyId')">{{errors.first('classifyId')}}</p>
                         </div>
-                        <i class="bk-icon icon-info-circle" v-bk-tooltips="$t('下划线，数字，英文小写的组合')"></i>
+                        <i class="bk-icon icon-info-circle" v-bk-tooltips="$t('请填写英文开头，下划线，数字，英文的组合')"></i>
                     </label>
                     <label>
                         <span class="label-title">
@@ -163,7 +166,7 @@
                                 name="classifyName"
                                 :placeholder="$t('请输入名称')"
                                 v-model.trim="groupDialog.data['bk_classification_name']"
-                                v-validate="'required|classifyName'">
+                                v-validate="'required|length:128'">
                             </bk-input>
                             <p class="form-error" :title="errors.first('classifyName')">{{errors.first('classifyName')}}</p>
                         </div>
@@ -171,7 +174,11 @@
                 </div>
             </div>
             <div slot="footer" class="footer">
-                <bk-button theme="primary" :loading="$loading(['updateClassification', 'createClassification'])" @click="saveGroup">{{$t('保存')}}</bk-button>
+                <bk-button theme="primary"
+                    :loading="$loading(['updateClassification', 'createClassification'])"
+                    @click="saveGroup">
+                    {{groupDialog.isEdit ? $t('保存') : $t('提交')}}
+                </bk-button>
                 <bk-button theme="default" @click="hideGroupDialog">{{$t('取消')}}</bk-button>
             </div>
         </bk-dialog>
@@ -182,7 +189,7 @@
             :title="$t('新建模型')"
             @confirm="saveModel">
         </the-create-model>
-        
+
         <bk-dialog
             class="bk-dialog-no-padding"
             :width="400"
@@ -193,8 +200,7 @@
                 <i class="bk-icon icon-check-1"></i>
                 <p>{{$t('模型创建成功')}}</p>
                 <div class="btn-box">
-                    <bk-button theme="primary" @click="handleGoInstance(curCreateModel)">{{$t('添加实例')}}</bk-button>
-                    <bk-button @click="modelClick(curCreateModel)">{{$t('配置字段')}}</bk-button>
+                    <bk-button theme="primary" @click="modelClick(curCreateModel)">{{$t('配置字段')}}</bk-button>
                     <bk-button @click="sucessDialog.isShow = false">{{$t('返回列表')}}</bk-button>
                 </div>
             </div>
@@ -205,9 +211,9 @@
 <script>
     import cmdbMainInject from '@/components/layout/main-inject'
     import theCreateModel from '@/components/model-manage/_create-model'
-    import featureTips from '@/components/feature-tips/index'
     import { mapGetters, mapMutations, mapActions } from 'vuex'
     import { addMainScrollListener, removeMainScrollListener } from '@/utils/main-scroller'
+    import { addResizeListener, removeResizeListener } from '@/utils/resize-events'
     import { MENU_RESOURCE_HOST, MENU_RESOURCE_BUSINESS, MENU_RESOURCE_INSTANCE } from '@/dictionary/menu-symbol'
     export default {
         filters: {
@@ -221,14 +227,13 @@
         components: {
             // theModel,
             theCreateModel,
-            cmdbMainInject,
-            featureTips
+            cmdbMainInject
         },
         data () {
             return {
-                showFeatureTips: false,
                 scrollHandler: null,
                 scrollTop: 0,
+                topPadding: 0,
                 modelType: 'enable',
                 searchModel: '',
                 filterClassifications: [],
@@ -236,10 +241,6 @@
                 curCreateModel: {},
                 sucessDialog: {
                     isShow: false
-                },
-                groupToolTips: {
-                    content: this.$t('内置模型组不支持添加和修改'),
-                    placement: 'right'
                 },
                 groupDialog: {
                     isShow: false,
@@ -254,11 +255,15 @@
                 modelDialog: {
                     isShow: false,
                     groupId: ''
+                },
+                request: {
+                    statistics: Symbol('statistics'),
+                    searchClassifications: Symbol('searchClassifications')
                 }
             }
         },
         computed: {
-            ...mapGetters(['supplierAccount', 'userName', 'admin', 'isAdminView', 'isBusinessSelected', 'featureTipsParams']),
+            ...mapGetters(['supplierAccount', 'userName']),
             ...mapGetters('objectModelClassify', [
                 'classifications'
             ]),
@@ -268,7 +273,7 @@
                     enableClassifications.push({
                         ...classification,
                         'bk_objects': classification['bk_objects'].filter(model => {
-                            return !model['bk_ispaused'] && !['process', 'plat'].includes(model['bk_obj_id'])
+                            return !model.bk_ispaused && !model.bk_ishidden
                         })
                     })
                 })
@@ -278,7 +283,7 @@
                 const disabledClassifications = []
                 this.classifications.forEach(classification => {
                     const disabledModels = classification['bk_objects'].filter(model => {
-                        return model['bk_ispaused'] && !['process', 'plat'].includes(model['bk_obj_id'])
+                        return model.bk_ispaused && !model.bk_ishidden
                     })
                     if (disabledModels.length) {
                         disabledClassifications.push({
@@ -298,6 +303,9 @@
             },
             disabledModelBtnText () {
                 return this.disabledClassifications.length ? '' : this.$t('停用模型提示')
+            },
+            mainLoading () {
+                return this.$loading(Object.values(this.request))
             }
         },
         watch: {
@@ -308,11 +316,12 @@
                 const searchResult = []
                 const currentClassifications = this.modelType === 'enable' ? this.enableClassifications : this.disabledClassifications
                 const classifications = this.$tools.clone(currentClassifications)
+                const lowerCaseValue = value.toLowerCase()
                 for (let i = 0; i < classifications.length; i++) {
                     classifications[i].bk_objects = classifications[i].bk_objects.filter(model => {
-                        const modelName = model.bk_obj_name
-                        const modelId = model.bk_obj_id
-                        return (modelName && modelName.indexOf(value) !== -1) || (modelId && modelId.indexOf(value) !== -1)
+                        const modelName = model.bk_obj_name.toLowerCase()
+                        const modelId = model.bk_obj_id.toLowerCase()
+                        return (modelName && modelName.indexOf(lowerCaseValue) !== -1) || (modelId && modelId.indexOf(lowerCaseValue) !== -1)
                     })
                     searchResult.push(classifications[i])
                 }
@@ -327,18 +336,30 @@
                 this.scrollTop = event.target.scrollTop
             }
             addMainScrollListener(this.scrollHandler)
-            this.getModelStatistics()
-            this.searchClassificationsObjects({
-                params: this.$injectMetadata()
-            })
+            try {
+                await Promise.all([
+                    this.getModelStatistics(),
+                    this.searchClassificationsObjects({
+                        params: {},
+                        config: {
+                            requestId: this.request.searchClassifications
+                        }
+                    })
+                ])
+            } catch (e) {
+                this.$route.meta.view = 'error'
+            }
             if (this.$route.query.searchModel) {
                 const hash = window.location.hash
                 this.searchModel = this.$route.query.searchModel
                 window.location.hash = hash.substring(0, hash.indexOf('?'))
             }
-            this.showFeatureTips = this.featureTipsParams['model']
+        },
+        mounted () {
+            addResizeListener(this.$refs.mainInject.$el, this.handleSetPadding)
         },
         beforeDestroy () {
+            removeResizeListener(this.$refs.mainInject.$el, this.handleSetPadding)
             removeMainScrollListener(this.scrollHandler)
         },
         methods: {
@@ -356,28 +377,20 @@
             ...mapActions('objectModel', [
                 'createObject'
             ]),
-            isEditable (classification) {
-                if (classification['bk_classification_type'] === 'inner') {
-                    return false
-                }
-                if (this.isAdminView) {
-                    return true
-                }
-                return !!this.$tools.getMetadataBiz(classification)
+            handleSetPadding () {
+                this.topPadding = this.$refs.mainInject.$el.offsetHeight
             },
-            isInner (model) {
-                return !this.$tools.getMetadataBiz(model)
+            isEditable (classification) {
+                return !['bk_biz_topo', 'bk_host_manage', 'bk_organization'].includes(classification.bk_classification_id)
             },
             showGroupDialog (isEdit, group) {
                 if (isEdit) {
-                    if (!this.$isAuthorized(this.$OPERATION.U_MODEL_GROUP)) return
                     this.groupDialog.data.id = group.id
                     this.groupDialog.title = this.$t('编辑分组')
                     this.groupDialog.data.bk_classification_id = group['bk_classification_id']
                     this.groupDialog.data.bk_classification_name = group['bk_classification_name']
                     this.groupDialog.data.id = group.id
                 } else {
-                    if (!this.$isAuthorized(this.$OPERATION.C_MODEL_GROUP)) return
                     this.groupDialog.title = this.$t('新建分组')
                     this.groupDialog.data.bk_classification_id = ''
                     this.groupDialog.data.bk_classification_name = ''
@@ -394,7 +407,7 @@
                 const modelStatisticsSet = {}
                 const res = await this.getClassificationsObjectStatistics({
                     config: {
-                        requestId: 'getClassificationsObjectStatistics'
+                        requestId: this.request.statistics
                     }
                 })
                 res.forEach(item => {
@@ -410,11 +423,11 @@
                 if (res.includes(false)) {
                     return
                 }
-                const params = this.$injectMetadata({
+                const params = {
                     bk_supplier_account: this.supplierAccount,
                     bk_classification_id: this.groupDialog.data['bk_classification_id'],
                     bk_classification_name: this.groupDialog.data['bk_classification_name']
-                })
+                }
                 if (this.groupDialog.isEdit) {
                     // eslint-disable-next-line
                     const res = await this.updateClassification({
@@ -436,17 +449,11 @@
                 this.searchModel = ''
             },
             deleteGroup (group) {
-                if (!this.$isAuthorized(this.$OPERATION.D_MODEL_GROUP)) return
                 this.$bkInfo({
                     title: this.$t('确认要删除此分组'),
                     confirmFn: async () => {
                         await this.deleteClassification({
-                            id: group.id,
-                            config: {
-                                data: this.$injectMetadata({}, {
-                                    inject: !!this.$tools.getMetadataBiz(group)
-                                })
-                            }
+                            id: group.id
                         })
                         this.$store.commit('objectModelClassify/deleteClassify', group['bk_classification_id'])
                         this.searchModel = ''
@@ -458,21 +465,21 @@
                 this.modelDialog.isShow = true
             },
             async saveModel (data) {
-                const params = this.$injectMetadata({
+                const params = {
                     bk_supplier_account: this.supplierAccount,
                     bk_obj_name: data['bk_obj_name'],
                     bk_obj_icon: data['bk_obj_icon'],
                     bk_classification_id: data['bk_classification_id'],
                     bk_obj_id: data['bk_obj_id'],
                     userName: this.userName
-                })
+                }
                 const createModel = await this.createObject({ params, config: { requestId: 'createModel' } })
                 this.curCreateModel = createModel
                 this.sucessDialog.isShow = true
                 this.$http.cancel('post_searchClassificationsObjects')
                 this.getModelStatistics()
                 this.searchClassificationsObjects({
-                    params: this.$injectMetadata()
+                    params: {}
                 })
                 this.modelDialog.isShow = false
                 this.modelDialog.groupId = ''
@@ -480,11 +487,12 @@
             },
             modelClick (model) {
                 this.$store.commit('objectModel/setActiveModel', model)
-                this.$router.push({
+                this.$routerActions.redirect({
                     name: 'modelDetails',
                     params: {
                         modelId: model['bk_obj_id']
-                    }
+                    },
+                    history: true
                 })
             },
             handleGoInstance (model) {
@@ -494,11 +502,13 @@
                     biz: MENU_RESOURCE_BUSINESS
                 }
                 if (map.hasOwnProperty(model.bk_obj_id)) {
-                    this.$router.push({
-                        name: map[model.bk_obj_id]
+                    const query = model.bk_obj_id === 'host' ? { scope: 'all' } : {}
+                    this.$routerActions.redirect({
+                        name: map[model.bk_obj_id],
+                        query
                     })
                 } else {
-                    this.$router.push({
+                    this.$routerActions.redirect({
                         name: MENU_RESOURCE_INSTANCE,
                         params: {
                             objId: model.bk_obj_id
@@ -516,10 +526,10 @@
     }
     .btn-group {
         position: absolute;
-        top: 58px;
+        top: 53px;
         left: 0;
         width: calc(100% - 17px);
-        padding: 0 20px 20px;
+        padding: 15px 20px 20px;
         font-size: 0;
         background-color: #fafbfd;
         z-index: 100;
@@ -569,19 +579,6 @@
         .group-item {
             position: relative;
             padding: 10px 0 20px;
-            >.icon-angle-double-down {
-                position: absolute;
-                left: 50%;
-                bottom: -5px;
-                margin-left: -5px;
-                padding: 5px;
-                font-size: 12px;
-                cursor: pointer;
-                transition: all .2s;
-                &.rotate {
-                    transform: rotate(180deg);
-                }
-            }
         }
         .group-title {
             display: inline-block;
@@ -598,24 +595,28 @@
                 vertical-align: middle;
                 background: $cmdbBorderColor;
             }
-            >span {
-                display: inline-block;
-                vertical-align: middle;
+            .title-info {
+                @include inlineBlock;
+                font-size: 0;
+                > span {
+                    @include inlineBlock;
+                    font-size: 14px;
+                    font-weight: 700;
+                }
             }
             .number {
                 color: $cmdbBorderColor;
             }
-            >.text-primary {
+            .group-btn {
                 display: none;
                 vertical-align: middle;
-                cursor: pointer;
-                &.disabled {
-                    opacity: 1 !important;
-                    color: #c4c6cc !important;
+                margin-right: 4px;
+                .bk-button-text {
+                    font-size: 16px;
                 }
             }
             &:hover {
-                >.text-primary {
+                .group-btn {
                     display: inline-block;
                 }
             }
@@ -665,7 +666,7 @@
                 width: 66px;
                 text-align: center;
                 font-size: 32px;
-                color: $cmdbBorderFocusColor;
+                color: #3a84ff;
                 .icon {
                     line-height: 68px;
                 }
@@ -785,7 +786,7 @@
             width: 58px;
             height: 58px;
             line-height: 58px;
-            font-size: 30px;
+            font-size: 50px;
             font-weight: bold;
             color: #fff;
             border-radius: 50%;

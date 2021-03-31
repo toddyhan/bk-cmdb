@@ -35,24 +35,35 @@
                 sortable="custom"
                 :key="column.id"
                 :prop="column.id"
-                :label="column.name">
+                :label="column.name"
+                show-overflow-tooltip>
+                <template slot-scope="{ row }">{{row[column.id] | formatter(column.property)}}</template>
             </bk-table-column>
             <bk-table-column :label="$t('操作')">
                 <template slot-scope="{ row }">
-                    <a href="javascript:void(0)" class="option-link"
-                        v-if="tempData.includes(row[instanceIdKey])"
-                        @click="updateAssociation(row[instanceIdKey], 'remove')">
-                        {{$t('取消关联')}}
-                    </a>
-                    <a href="javascript:void(0)" class="option-link is-associated"
-                        v-else-if="isAssociated(row)">
-                        {{$t('已关联')}}
-                    </a>
-                    <a href="javascript:void(0)" class="option-link" v-else
-                        v-click-outside="handleCloseConfirm"
-                        @click.stop="beforeUpdate($event, row[instanceIdKey], 'new')">
-                        {{$t('添加关联')}}
-                    </a>
+                    <cmdb-auth :auth="getInstanceAuth(row)">
+                        <template slot-scope="{ disabled }">
+                            <bk-link href="javascript:void(0)" class="option-link"
+                                v-if="tempData.includes(row[instanceIdKey])"
+                                theme="primary"
+                                :disabled="disabled"
+                                @click="updateAssociation(row[instanceIdKey], 'remove')">
+                                {{$t('取消关联')}}
+                            </bk-link>
+                            <bk-link href="javascript:void(0)" class="option-link is-associated"
+                                theme="primary"
+                                v-else-if="isAssociated(row)">
+                                {{$t('已关联')}}
+                            </bk-link>
+                            <bk-link href="javascript:void(0)" class="option-link" v-else
+                                v-click-outside="handleCloseConfirm"
+                                theme="primary"
+                                :disabled="disabled"
+                                @click.stop="beforeUpdate($event, row[instanceIdKey], 'new')">
+                                {{$t('添加关联')}}
+                            </bk-link>
+                        </template>
+                    </cmdb-auth>
                 </template>
             </bk-table-column>
         </bk-table>
@@ -70,11 +81,13 @@
     import cmdbAssociationPropertyFilter from './association-property-filter.vue'
     import bus from '@/utils/bus.js'
     import { mapGetters, mapActions } from 'vuex'
+    import authMixin from '../mixin-auth'
     export default {
         name: 'cmdb-host-association-create',
         components: {
             cmdbAssociationPropertyFilter
         },
+        mixins: [authMixin],
         data () {
             return {
                 properties: [],
@@ -92,7 +105,11 @@
                         current: 1,
                         limit: 10
                     },
-                    sort: ''
+                    sort: '',
+                    stuff: {
+                        type: 'search',
+                        payload: {}
+                    }
                 },
                 specialObj: {
                     'host': 'bk_host_innerip',
@@ -117,7 +134,7 @@
         },
         computed: {
             ...mapGetters(['supplierAccount']),
-            ...mapGetters('objectModelClassify', ['models']),
+            ...mapGetters('objectModelClassify', ['models', 'getModelById']),
             objId () {
                 return 'host'
             },
@@ -220,12 +237,49 @@
             ...mapActions('objectCommonInst', ['searchInst']),
             ...mapActions('objectBiz', ['searchBusiness']),
             ...mapActions('hostSearch', ['searchHost']),
+            getInstanceAuth (row) {
+                const auth = [this.HOST_AUTH.U_HOST]
+                switch (this.currentAsstObj) {
+                    case 'biz': {
+                        auth.push({
+                            type: this.$OPERATION.U_BUSINESS,
+                            relation: [row.bk_biz_id]
+                        })
+                        break
+                    }
+                    case 'host': {
+                        const originalData = this.table.originalList.find(data => data.host.bk_host_id === row.bk_host_id)
+                        const [biz] = originalData.biz
+                        if (biz.default === 0) {
+                            auth.push({
+                                type: this.$OPERATION.U_HOST,
+                                relation: [biz.bk_biz_id, row.bk_host_id]
+                            })
+                        } else {
+                            const [module] = originalData.module
+                            auth.push({
+                                type: this.$OPERATION.U_RESOURCE_HOST,
+                                relation: [module.bk_module_id, row.bk_host_id]
+                            })
+                        }
+                        break
+                    }
+                    default: {
+                        const model = this.getModelById(this.currentAsstObj)
+                        auth.push({
+                            type: this.$OPERATION.U_INST,
+                            relation: [model.id, row.bk_inst_id]
+                        })
+                    }
+                }
+                return auth
+            },
             getAsstObjProperties () {
                 return this.searchObjectAttribute({
-                    params: this.$injectMetadata({
+                    params: {
                         'bk_obj_id': this.currentAsstObj,
                         'bk_supplier_account': this.supplierAccount
-                    }),
+                    },
                     config: {
                         requestId: `post_searchObjectAttribute_${this.currentAsstObj}`
                     }
@@ -255,15 +309,19 @@
             setTableHeader (propertyId) {
                 const header = [{
                     id: this.instanceIdKey,
-                    name: 'ID'
+                    name: 'ID',
+                    property: 'singlechar'
                 }, {
                     id: this.instanceNameKey,
-                    name: this.instanceName
+                    name: this.instanceName,
+                    property: 'singlechar'
                 }]
                 if (propertyId && propertyId !== this.instanceNameKey) {
+                    const property = this.getProperty(propertyId) || {}
                     header.push({
                         id: propertyId,
-                        name: (this.getProperty(propertyId) || {})['bk_property_name']
+                        name: this.$tools.getHeaderPropertyName(property),
+                        property: property
                     })
                 }
                 this.table.header = header
@@ -277,31 +335,28 @@
             getObjAssociation () {
                 return Promise.all([
                     this.searchObjectAssociation({
-                        params: this.$injectMetadata({
+                        params: {
                             condition: {
                                 'bk_obj_id': this.objId
                             }
-                        }),
+                        },
                         config: {
-                            requestId: 'getSourceAssocaition',
-                            fromCache: true
+                            requestId: 'getSourceAssocaition'
                         }
                     }),
                     this.searchObjectAssociation({
-                        params: this.$injectMetadata({
+                        params: {
                             condition: {
                                 'bk_asst_obj_id': this.objId
                             }
-                        }),
+                        },
                         config: {
-                            requestId: 'getTargetAssocaition',
-                            fromCache: true
+                            requestId: 'getTargetAssocaition'
                         }
                     }),
                     this.$store.dispatch('objectMainLineModule/searchMainlineObject', {
                         config: {
-                            requestId: 'getMainLineModels',
-                            fromCache: true
+                            requestId: 'getMainLineModels'
                         }
                     })
                 ]).then(([dataAsSource, dataAsTarget, mainLineModels]) => {
@@ -356,7 +411,7 @@
                 const option = this.currentOption
                 const isSource = this.isSource
                 return this.searchInstAssociation({
-                    params: this.$injectMetadata({
+                    params: {
                         condition: {
                             'bk_asst_id': option['bk_asst_id'],
                             'bk_obj_asst_id': option['bk_obj_asst_id'],
@@ -364,7 +419,7 @@
                             'bk_asst_obj_id': isSource ? option['bk_asst_obj_id'] : this.objId,
                             [`${isSource ? 'bk_inst_id' : 'bk_asst_inst_id'}`]: this.instId
                         }
-                    })
+                    }
                 }).then(data => {
                     this.existInstAssociation = data || []
                 })
@@ -404,11 +459,11 @@
             },
             createAssociation (instId) {
                 return this.createInstAssociation({
-                    params: this.$injectMetadata({
+                    params: {
                         'bk_obj_asst_id': this.currentOption['bk_obj_asst_id'],
                         'bk_inst_id': this.isSource ? this.instId : instId,
                         'bk_asst_inst_id': this.isSource ? instId : this.instId
-                    })
+                    }
                 })
             },
             deleteAssociation (instId) {
@@ -419,12 +474,7 @@
                     return exist['bk_inst_id'] === instId
                 })
                 return this.deleteInstAssociation({
-                    id: (instAssociation || {}).id,
-                    config: {
-                        data: this.$injectMetadata({}, {
-                            inject: !!this.$tools.getMetadataBiz(instAssociation)
-                        })
-                    }
+                    id: (instAssociation || {}).id
                 })
             },
             beforeUpdate (event, instId, updateType = 'new') {
@@ -459,7 +509,7 @@
                 const objId = this.currentAsstObj
                 const config = {
                     requestId: 'get_relation_inst',
-                    cancelPrevious: true
+                    globalPermission: false
                 }
                 let promise
                 switch (objId) {
@@ -473,7 +523,16 @@
                         promise = this.getObjInstance(objId, config)
                 }
                 promise.then(data => {
+                    this.table.stuff.type = 'search'
                     this.setTableList(data, objId)
+                }).catch(e => {
+                    console.error(e)
+                    if (e.permission) {
+                        this.table.stuff = {
+                            type: 'permission',
+                            payload: { permission: e.permission }
+                        }
+                    }
                 })
             },
             getHostInstance (config) {
@@ -524,7 +583,7 @@
             getObjInstance (objId, config) {
                 return this.searchInst({
                     objId: objId,
-                    params: this.$injectMetadata(this.getObjParams()),
+                    params: this.getObjParams(),
                     config
                 })
             },
@@ -554,7 +613,7 @@
                 if (asstObjId === this.objId) {
                     data.info = data.info.filter(item => item[this.instanceIdKey] !== this.instId)
                 }
-                this.table.list = data.info.map(item => this.$tools.flattenItem(this.properties, item))
+                this.table.list = data.info
             },
             getProperty (propertyId) {
                 return this.properties.find(({ bk_property_id: bkPropertyId }) => bkPropertyId === propertyId)

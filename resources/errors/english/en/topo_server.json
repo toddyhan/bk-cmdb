@@ -55,7 +55,7 @@
 	"1101033": "query business failed",
 	"1101034": "query module failed,%s",
 	"1101035": "Business topology level exceeds the limit",
-	"1101036": "the instance has been associated by [%s], coule not be delete or archived",
+	"1101036": "the instance [instance ID: %d] has been associated, could not be delete or archived",
 	"1101037": "the object [%s] has been instantiated and cannot be deleted",
 	"1101038": "the associations %s->%s already exist",
     "1101039": "the source association object does not exist",
@@ -112,6 +112,21 @@
     "1101090": "update service category on module create by template forbidden",
     "1101091": "update name field on module create by template forbidden",
     "1101092": "can not add required attribute field for a mainline model",
-    "1101093": "line %d: bk_obj_id field conflict with url",
+	"1101093": "line %d: bk_obj_id field conflict with url",
+    "1101094": "same name module already exist",
+    "1101095": "sync set template failed",
+    "1101096": "sync set template task is running",
+    "1101097": "forbidden add/remove module on set initialized by set template",
+    "1101098": "forbidden remove built in set or module",
+    "1101099": "instance of a mainline model, which is not allowed to be operated by excel import",
+
+	"1101100": "parse url params failed",
+	"1101101": "Query model attributes failed, please refresh the page",
+    "1101102": "model not found",
+	"1101102": "Only resource pool directory name can be update",
+	"1101103": "Fail to %s resource pool directory, directory not exist",
+	"1101104": "Idle machine directory is not allowed to delete",
+	"1101105": "Resource dir is being used in cloud sync task",
+
     "": "" 
 }

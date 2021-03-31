@@ -2,28 +2,26 @@
     <div class="models-layout">
         <div class="models-options clearfix">
             <div class="options-button clearfix fl">
-                <div class="fl mr10"
-                    v-cursor="{
-                        active: !$isAuthorized($OPERATION.C_INST),
-                        auth: [$OPERATION.C_INST]
-                    }">
-                    <bk-button theme="primary"
-                        :disabled="!$isAuthorized($OPERATION.C_INST)"
+                <cmdb-auth class="fl mr10" :auth="{ type: $OPERATION.C_INST, relation: [model.id] }">
+                    <bk-button slot-scope="{ disabled }"
+                        theme="primary"
+                        :disabled="disabled"
                         @click="handleCreate">
                         {{$t('新建')}}
                     </bk-button>
-                </div>
-                <div class="fl mr10"
-                    v-cursor="{
-                        active: !$isAuthorized([$OPERATION.C_INST, $OPERATION.U_INST]),
-                        auth: [$OPERATION.C_INST, $OPERATION.U_INST]
-                    }">
-                    <bk-button class="models-button"
-                        :disabled="!$isAuthorized([$OPERATION.C_INST, $OPERATION.U_INST])"
+                </cmdb-auth>
+                <cmdb-auth class="fl mr10"
+                    :auth="[
+                        { type: $OPERATION.C_INST, relation: [model.id] },
+                        { type: $OPERATION.U_INST, relation: [model.id] }
+                    ]">
+                    <bk-button slot-scope="{ disabled }"
+                        class="models-button"
+                        :disabled="disabled"
                         @click="importSlider.show = true">
                         {{$t('导入')}}
                     </bk-button>
-                </div>
+                </cmdb-auth>
                 <div class="fl mr10">
                     <bk-button class="models-button" theme="default"
                         :disabled="!table.checked.length"
@@ -38,17 +36,12 @@
                         {{$t('批量更新')}}
                     </bk-button>
                 </div>
-                <div class="fl mr10"
-                    v-cursor="{
-                        active: !$isAuthorized($OPERATION.D_INST),
-                        auth: [$OPERATION.D_INST]
-                    }">
-                    <bk-button class="models-button button-delete"
-                        :disabled="!table.checked.length || !$isAuthorized($OPERATION.D_INST)"
-                        @click="handleMultipleDelete">
-                        {{$t('删除')}}
-                    </bk-button>
-                </div>
+                <bk-button class="models-button button-delete fl mr10"
+                    hover-theme="danger"
+                    :disabled="!table.checked.length"
+                    @click="handleMultipleDelete">
+                    {{$t('删除')}}
+                </bk-button>
             </div>
             <div class="options-button fr">
                 <icon-button class="ml5"
@@ -63,59 +56,60 @@
                 </icon-button>
             </div>
             <div class="options-filter clearfix fr">
-                <bk-select class="filter-selector fl"
+                <cmdb-property-selector class="filter-selector fl"
                     v-model="filter.id"
-                    searchable
-                    font-size="14"
-                    :clearable="false">
-                    <bk-option v-for="(option, index) in filter.options"
-                        :key="index"
-                        :id="option.id"
-                        :name="option.name">
-                    </bk-option>
-                </bk-select>
-                <cmdb-form-enum class="filter-value fl"
-                    v-if="filter.type === 'enum'"
+                    :properties="properties"
+                    :object-unique="objectUnique">
+                </cmdb-property-selector>
+                <component class="filter-value fl"
+                    v-if="['enum', 'list', 'organization'].includes(filterType)"
+                    :is="`cmdb-form-${filterType}`"
                     :options="$tools.getEnumOptions(properties, filter.id)"
                     :allow-clear="true"
+                    :clearable="true"
                     :auto-select="false"
-                    font-size="14"
                     v-model="filter.value"
-                    @on-selected="getTableData">
-                </cmdb-form-enum>
+                    font-size="medium"
+                    @on-selected="handleFilterValueChange"
+                    @on-checked="handleFilterValueChange">
+                </component>
                 <bk-input class="filter-value cmdb-form-input fl" type="text" maxlength="11"
-                    v-else-if="filter.type === 'int'"
+                    v-else-if="filterType === 'int'"
                     v-model.number="filter.value"
-                    font-size="large"
+                    clearable
+                    right-icon="icon-search"
+                    font-size="medium"
                     :placeholder="$t('快速查询')"
-                    @enter="getTableData">
+                    @enter="handleFilterValueChange"
+                    @clear="handleFilterValueChange">
                 </bk-input>
                 <bk-input class="filter-value cmdb-form-input fl" type="text"
-                    v-else-if="filter.type === 'float'"
+                    v-else-if="filterType === 'float'"
                     v-model.number="filter.value"
-                    font-size="large"
+                    clearable
+                    right-icon="icon-search"
+                    font-size="medium"
                     :placeholder="$t('快速查询')"
-                    @enter="getTableData">
+                    @enter="handleFilterValueChange"
+                    @clear="handleFilterValueChange">
                 </bk-input>
                 <bk-input class="filter-value cmdb-form-input fl" type="text"
                     v-else
                     v-model.trim="filter.value"
-                    font-size="large"
+                    clearable
+                    right-icon="icon-search"
+                    font-size="medium"
                     :placeholder="$t('快速查询')"
-                    @enter="getTableData">
+                    @enter="handleFilterValueChange"
+                    @clear="handleFilterValueChange">
                 </bk-input>
-                <i class="filter-search bk-icon icon-search"
-                    v-show="filter.type !== 'enum'"
-                    @click="getTableData"></i>
             </div>
         </div>
         <bk-table class="models-table" ref="table"
-            v-bkloading="{ isLoading: $loading() }"
+            v-bkloading="{ isLoading: $loading('^=post_searchInst_') }"
             :data="table.list"
             :pagination="table.pagination"
             :max-height="$APP.height - 190"
-            :row-style="{ cursor: 'pointer' }"
-            @row-click="handleRowClick"
             @sort-change="handleSortChange"
             @page-limit-change="handleSizeChange"
             @page-change="handlePageChange"
@@ -123,12 +117,36 @@
             <bk-table-column type="selection" width="60" align="center" fixed class-name="bk-table-selection"></bk-table-column>
             <bk-table-column v-for="column in table.header"
                 sortable="custom"
+                min-width="80"
                 :key="column.id"
                 :prop="column.id"
                 :label="column.name"
-                :class-name="column.id === 'bk_inst_name' ? 'is-highlight' : ''"
-                :fixed="column.id === 'bk_inst_name'">
+                show-overflow-tooltip>
+                <template slot-scope="{ row }">
+                    <cmdb-property-value
+                        :theme="column.id === 'bk_inst_id' ? 'primary' : 'default'"
+                        :show-unit="false"
+                        :value="row[column.id]"
+                        :property="column.property"
+                        @click.native.stop="handleValueClick(row, column)">
+                    </cmdb-property-value>
+                </template>
             </bk-table-column>
+            <bk-table-column fixed="right" :label="$t('操作')">
+                <template slot-scope="{ row }">
+                    <cmdb-auth :auth="{ type: $OPERATION.D_INST, relation: [model.id, row.bk_inst_id] }">
+                        <template slot-scope="{ disabled }">
+                            <bk-button theme="primary" text :disabled="disabled" @click.stop="handleDelete(row)">{{$t('删除')}}</bk-button>
+                        </template>
+                    </cmdb-auth>
+                </template>
+            </bk-table-column>
+            <cmdb-table-empty
+                slot="empty"
+                :auth="{ type: $OPERATION.C_INST, relation: [model.id] }"
+                :stuff="table.stuff"
+                @create="handleCreate">
+            </cmdb-table-empty>
         </bk-table>
         <bk-sideslider
             v-transfer-dom
@@ -136,49 +154,30 @@
             :title="slider.title"
             :width="800"
             :before-close="handleSliderBeforeClose">
-            <bk-tab :active.sync="tab.active" type="unborder-card" slot="content" v-if="slider.contentShow">
+            <bk-tab type="unborder-card" slot="content"
+                v-if="slider.contentShow"
+                :active.sync="tab.active" :show-header="attribute.type !== 'create'">
                 <bk-tab-panel name="attribute" :label="$t('属性')" style="width: calc(100% + 40px);margin: 0 -20px;">
-                    <cmdb-details v-if="attribute.type === 'details'"
-                        :properties="properties"
-                        :property-groups="propertyGroups"
-                        :inst="attribute.inst.details"
-                        :edit-auth="$OPERATION.U_INST"
-                        :delete-auth="$OPERATION.D_INST"
-                        @on-edit="handleEdit"
-                        @on-delete="handleDelete">
-                    </cmdb-details>
-                    <cmdb-form v-else-if="['update', 'create'].includes(attribute.type)"
+                    <cmdb-form v-if="['update', 'create'].includes(attribute.type)"
                         ref="form"
                         :properties="properties"
                         :property-groups="propertyGroups"
                         :inst="attribute.inst.edit"
                         :type="attribute.type"
-                        :save-auth="attribute.type === 'update' ? $OPERATION.U_INST : $OPERATION.C_INST"
+                        :save-auth="{ type: attribute.type === 'update' ? $OPERATION.U_INST : $OPERATION.C_INST }"
+                        :object-unique="objectUnique"
                         @on-submit="handleSave"
                         @on-cancel="handleCancel">
                     </cmdb-form>
                     <cmdb-form-multiple v-else-if="attribute.type === 'multiple'"
                         ref="multipleForm"
+                        :uneditable-properties="['bk_inst_name']"
                         :properties="properties"
                         :property-groups="propertyGroups"
                         :object-unique="objectUnique"
                         @on-submit="handleMultipleSave"
                         @on-cancel="handleMultipleCancel">
                     </cmdb-form-multiple>
-                </bk-tab-panel>
-                <bk-tab-panel name="relevance" :label="$t('关联Relation')" :visible="['update', 'details'].includes(attribute.type)">
-                    <cmdb-relation
-                        v-if="tab.active === 'relevance'"
-                        :auth="$OPERATION.U_INST"
-                        :obj-id="objId"
-                        :inst="attribute.inst.details">
-                    </cmdb-relation>
-                </bk-tab-panel>
-                <bk-tab-panel name="history" :label="$t('变更记录')" :visible="['update', 'details'].includes(attribute.type)">
-                    <cmdb-audit-history v-if="tab.active === 'history'"
-                        :target="objId"
-                        :inst-id="attribute.inst.details['bk_inst_id']">
-                    </cmdb-audit-history>
                 </bk-tab-panel>
             </bk-tab>
         </bk-sideslider>
@@ -201,28 +200,26 @@
             <cmdb-import v-if="importSlider.show" slot="content"
                 :template-url="url.template"
                 :import-url="url.import"
-                :download-payload="url.downloadPayload"
-                :import-payload="url.importPayload"
                 @success="handlePageChange(1)"
                 @partialSuccess="handlePageChange(1)">
             </cmdb-import>
         </bk-sideslider>
+        <router-subview></router-subview>
     </div>
 </template>
 
 <script>
-    import { mapGetters, mapActions } from 'vuex'
+    import { mapState, mapGetters, mapActions } from 'vuex'
     import cmdbColumnsConfig from '@/components/columns-config/columns-config'
-    import cmdbAuditHistory from '@/components/audit-history/audit-history.vue'
-    import cmdbRelation from '@/components/relation'
     import cmdbImport from '@/components/import/import'
-    import { MENU_RESOURCE_MANAGEMENT } from '@/dictionary/menu-symbol'
+    import { MENU_RESOURCE_INSTANCE_DETAILS } from '@/dictionary/menu-symbol'
+    import cmdbPropertySelector from '@/components/property-selector'
+    import RouterQuery from '@/router/query'
     export default {
         components: {
             cmdbColumnsConfig,
-            cmdbAuditHistory,
-            cmdbRelation,
-            cmdbImport
+            cmdbImport,
+            cmdbPropertySelector
         },
         data () {
             return {
@@ -233,20 +230,22 @@
                     checked: [],
                     header: [],
                     list: [],
-                    allList: [],
                     pagination: {
                         count: 0,
                         current: 1,
                         ...this.$tools.getDefaultPaginationConfig()
                     },
                     defaultSort: 'bk_inst_id',
-                    sort: 'bk_inst_id'
+                    sort: 'bk_inst_id',
+                    stuff: {
+                        type: 'default',
+                        payload: {}
+                    }
                 },
                 filter: {
-                    id: '',
-                    value: '',
-                    type: '',
-                    options: []
+                    id: 'bk_inst_name',
+                    value: RouterQuery.get('filter', ''),
+                    type: 'singlechar'
                 },
                 slider: {
                     show: false,
@@ -266,7 +265,7 @@
                 columnsConfig: {
                     show: false,
                     selected: [],
-                    disabledColumns: ['bk_inst_name']
+                    disabledColumns: ['bk_inst_id', 'bk_inst_name']
                 },
                 importSlider: {
                     show: false
@@ -274,7 +273,8 @@
             }
         },
         computed: {
-            ...mapGetters(['supplierAccount', 'userName', 'isAdminView']),
+            ...mapState('userCustom', ['globalUsercustom']),
+            ...mapGetters(['supplierAccount', 'userName']),
             ...mapGetters('userCustom', ['usercustom']),
             ...mapGetters('objectBiz', ['bizId']),
             ...mapGetters('objectModelClassify', ['models', 'getModelById']),
@@ -285,33 +285,40 @@
                 return this.getModelById(this.objId) || {}
             },
             customConfigKey () {
-                return `${this.userName}_${this.objId}_${this.isAdminView ? 'adminView' : this.bizId}_table_columns`
+                return `${this.objId}_custom_table_columns`
             },
             customColumns () {
-                return this.usercustom[this.customConfigKey]
+                return this.usercustom[this.customConfigKey] || []
+            },
+            globalCustomColumns () {
+                return this.globalUsercustom[`${this.objId}_global_custom_table_columns`] || []
             },
             url () {
                 const prefix = `${window.API_HOST}insts/owner/${this.supplierAccount}/object/${this.objId}/`
                 return {
                     import: prefix + 'import',
                     export: prefix + 'export',
-                    template: `${window.API_HOST}importtemplate/${this.objId}`,
-                    downloadPayload: this.$injectMetadata({}, { inject: !this.isPublicModel }),
-                    importPayload: this.$injectMetadata({}, { inject: !this.isPublicModel })
+                    template: `${window.API_HOST}importtemplate/${this.objId}`
                 }
             },
-            isPublicModel () {
-                const model = this.models.find(model => model['bk_obj_id'] === this.objId) || {}
-                return !this.$tools.getMetadataBiz(model)
+            parentLayers () {
+                return [{
+                    resource_id: this.model.id,
+                    resource_type: 'model'
+                }]
+            },
+            filterType () {
+                const propertyId = this.filter.id
+                const property = this.properties.find(property => property.bk_property_id === propertyId)
+                if (property) {
+                    return property.bk_property_type
+                }
+                return 'singlechar'
             }
         },
         watch: {
             'filter.id' (id) {
                 this.filter.value = ''
-                this.filter.type = (this.$tools.getProperty(this.properties, id) || {})['bk_property_type']
-            },
-            'filter.value' () {
-                this.$route.query.instId = null
             },
             'slider.show' (show) {
                 if (!show) {
@@ -330,8 +337,27 @@
             }
         },
         created () {
+            this.unwatch = RouterQuery.watch('*', ({
+                page = 1,
+                limit = this.table.pagination.limit,
+                filter = '',
+                field = 'bk_inst_name'
+            }) => {
+                this.filter.id = field
+                this.filter.value = filter
+                this.table.pagination.current = parseInt(page)
+                this.table.pagination.limit = parseInt(limit)
+                this.getTableData(!!filter)
+            })
             this.setDynamicBreadcrumbs()
             this.reload()
+        },
+        beforeDestroy () {
+            this.unwatch()
+        },
+        beforeRouteUpdate (to, from, next) {
+            this.setDynamicBreadcrumbs()
+            next()
         },
         methods: {
             ...mapActions('objectModelFieldGroup', ['searchGroup']),
@@ -347,24 +373,17 @@
             ]),
             setDynamicBreadcrumbs () {
                 this.$store.commit('setTitle', this.model.bk_obj_name)
-                this.$store.commit('setBreadcrumbs', [{
-                    label: this.$t('资源目录'),
-                    route: {
-                        name: MENU_RESOURCE_MANAGEMENT
-                    }
-                }, {
-                    label: this.model.bk_obj_name
-                }])
             },
             async reload () {
                 try {
                     this.setRencentlyData()
                     this.resetData()
                     this.properties = await this.searchObjectAttribute({
-                        params: this.$injectMetadata({
+                        injectId: this.objId,
+                        params: {
                             bk_obj_id: this.objId,
                             bk_supplier_account: this.supplierAccount
-                        }, { inject: !this.isPublicModel }),
+                        },
                         config: {
                             requestId: `post_searchObjectAttribute_${this.objId}`,
                             fromCache: false
@@ -372,33 +391,48 @@
                     })
                     await Promise.all([
                         this.getPropertyGroups(),
-                        this.setTableHeader(),
-                        this.setFilterOptions()
+                        this.getObjectUnique(),
+                        this.setTableHeader()
                     ])
-                    this.getTableData()
+                    RouterQuery.set({
+                        _t: Date.now()
+                    })
                 } catch (e) {
                     // ignore
                 }
+            },
+            handleFilterValueChange () {
+                RouterQuery.set({
+                    _t: Date.now(),
+                    page: 1,
+                    field: this.filter.id,
+                    filter: this.filter.value
+                })
             },
             resetData () {
                 this.table = {
                     checked: [],
                     header: [],
                     list: [],
-                    allList: [],
                     pagination: {
                         count: 0,
                         current: 1,
                         ...this.$tools.getDefaultPaginationConfig()
                     },
                     defaultSort: 'bk_inst_id',
-                    sort: 'bk_inst_id'
+                    sort: 'bk_inst_id',
+                    stuff: {
+                        type: 'default',
+                        payload: {
+                            resource: this.model['bk_obj_name']
+                        }
+                    }
                 }
             },
             getPropertyGroups () {
                 return this.searchGroup({
                     objId: this.objId,
-                    params: this.$injectMetadata({}, { inject: !this.isPublicModel }),
+                    params: {},
                     config: {
                         fromCache: false,
                         requestId: `post_searchGroup_${this.objId}`
@@ -408,57 +442,65 @@
                     return groups
                 })
             },
+            getObjectUnique () {
+                return this.$store.dispatch('objectUnique/searchObjectUniqueConstraints', {
+                    objId: this.objId,
+                    params: {}
+                }).then(data => {
+                    this.objectUnique = data
+                    return data
+                })
+            },
             setTableHeader () {
                 return new Promise((resolve, reject) => {
-                    const headerProperties = this.$tools.getHeaderProperties(this.properties, this.customColumns, this.columnsConfig.disabledColumns)
+                    const customColumns = this.customColumns.length ? this.customColumns : this.globalCustomColumns
+                    const headerProperties = this.$tools.getHeaderProperties(this.properties, customColumns, this.columnsConfig.disabledColumns)
                     resolve(headerProperties)
                 }).then(properties => {
                     this.updateTableHeader(properties)
                     this.columnsConfig.selected = properties.map(property => property['bk_property_id'])
                 })
             },
-            setFilterOptions () {
-                this.filter.options = this.properties.map(property => {
-                    return {
-                        id: property['bk_property_id'],
-                        name: property['bk_property_name']
-                    }
-                })
-                this.filter.id = this.filter.options.length ? this.filter.options[0]['id'] : ''
-            },
             updateTableHeader (properties) {
                 this.table.header = properties.map(property => {
                     return {
-                        id: property['bk_property_id'],
-                        name: property['bk_property_name']
+                        id: property.bk_property_id,
+                        name: this.$tools.getHeaderPropertyName(property),
+                        property
                     }
                 })
             },
-            async handleCheckAll (type) {
-                if (type === 'current') {
-                    this.table.checked = this.table.list.map(inst => inst['bk_inst_id'])
-                } else {
-                    const allData = await this.getAllInstList()
-                    this.table.checked = allData.info.map(inst => inst['bk_inst_id'])
+            handleValueClick (item, column) {
+                if (column.id !== 'bk_inst_id') {
+                    return false
                 }
-            },
-            handleRowClick (item) {
-                this.slider.show = true
-                this.slider.title = item['bk_inst_name']
-                this.attribute.inst.details = item
-                this.attribute.type = 'details'
+                this.$routerActions.redirect({
+                    name: MENU_RESOURCE_INSTANCE_DETAILS,
+                    params: {
+                        objId: this.objId,
+                        instId: item.bk_inst_id
+                    },
+                    history: true
+                })
             },
             handleSortChange (sort) {
                 this.table.sort = this.$tools.getSort(sort)
-                this.handlePageChange(1)
+                RouterQuery.set({
+                    _t: Date.now()
+                })
             },
             handleSizeChange (size) {
-                this.table.pagination.limit = size
-                this.handlePageChange(1)
+                RouterQuery.set({
+                    limit: size,
+                    page: 1,
+                    _t: Date.now()
+                })
             },
-            handlePageChange (page) {
-                this.table.pagination.current = page
-                this.getTableData()
+            handlePageChange (page, withFilter = false) {
+                RouterQuery.set({
+                    page: page,
+                    _t: Date.now()
+                })
             },
             handleSelectChange (selection) {
                 this.table.checked = selection.map(row => row.bk_inst_id)
@@ -466,48 +508,29 @@
             getInstList (config = { cancelPrevious: true }) {
                 return this.searchInst({
                     objId: this.objId,
-                    params: this.$injectMetadata(this.getSearchParams(), { inject: !this.isPublicModel }),
+                    params: this.getSearchParams(),
                     config: Object.assign({ requestId: `post_searchInst_${this.objId}` }, config)
                 })
             },
-            getAllInstList () {
-                return this.searchInst({
-                    objId: this.objId,
-                    params: this.$injectMetadata({
-                        ...this.getSearchParams(),
-                        page: {}
-                    }, { inject: !this.isPublicModel }),
-                    config: {
-                        requestId: `${this.objId}AllList`,
-                        cancelPrevious: true
-                    }
-                }).then(data => {
-                    this.table.allList = data.info
-                    return data
-                })
-            },
-            setAllHostList (list) {
-                const newList = []
-                list.forEach(item => {
-                    const existItem = this.table.allList.some(existItem => existItem['bk_inst_id'] === item['bk_inst_id'])
-                    if (existItem) {
-                        Object.assign(existItem, item)
-                    } else {
-                        newList.push(item)
-                    }
-                })
-                this.table.allList = [...this.table.allList, ...newList]
-            },
-            getTableData () {
-                this.getInstList().then(data => {
+            getTableData (withFilter) {
+                this.getInstList({ cancelPrevious: true, globalPermission: false }).then(data => {
                     if (data.count && !data.info.length) {
                         this.table.pagination.current -= 1
                         this.getTableData()
                     }
-                    this.table.list = this.$tools.flattenList(this.properties, data.info)
+                    this.table.list = data.info
                     this.table.pagination.count = data.count
-                    this.setAllHostList(data.info)
+
+                    this.table.stuff.type = withFilter ? 'search' : 'default'
+
                     return data
+                }).catch(({ permission }) => {
+                    if (permission) {
+                        this.table.stuff = {
+                            type: 'permission',
+                            payload: { permission }
+                        }
+                    }
                 })
             },
             getSearchParams () {
@@ -523,7 +546,7 @@
                     }
                 }
                 if (this.filter.id && String(this.filter.value).length) {
-                    const filterType = this.filter.type
+                    const filterType = this.filterType
                     let filterValue = this.filter.value
                     if (filterType === 'bool') {
                         const convertValue = [true, false].find(bool => bool.toString() === filterValue)
@@ -533,7 +556,7 @@
                     } else if (filterType === 'float') {
                         filterValue = isNaN(parseFloat(filterValue)) ? filterValue : parseFloat(filterValue)
                     }
-                    if (['bool', 'int', 'enum', 'float'].includes(filterType)) {
+                    if (['bool', 'int', 'enum', 'float', 'organization'].includes(filterType)) {
                         params.condition[this.objId].push({
                             field: this.filter.id,
                             operator: '$eq',
@@ -562,20 +585,11 @@
                             value: filterValue
                         })
                     }
-                } else if (this.$route.params.instId) {
-                    params.condition[this.objId].push({
-                        field: 'bk_inst_id',
-                        operator: '$in',
-                        value: [Number(this.$route.params.instId)]
-                    })
-                    this.$route.params.instId = null
                 }
                 return params
             },
-            async handleEdit (flattenItem) {
-                const list = await this.getInstList({ fromCache: true })
-                const inst = list.info.find(item => item['bk_inst_id'] === flattenItem['bk_inst_id'])
-                this.attribute.inst.edit = inst
+            async handleEdit (item) {
+                this.attribute.inst.edit = item
                 this.attribute.type = 'update'
             },
             handleCreate () {
@@ -590,14 +604,13 @@
                     confirmFn: () => {
                         this.deleteInst({
                             objId: this.objId,
-                            instId: inst['bk_inst_id'],
-                            config: {
-                                data: this.$injectMetadata({}, { inject: !this.isPublicModel })
-                            }
+                            instId: inst['bk_inst_id']
                         }).then(() => {
                             this.slider.show = false
                             this.$success(this.$t('删除成功'))
-                            this.getTableData()
+                            RouterQuery.set({
+                                _t: Date.now()
+                            })
                         })
                     }
                 })
@@ -607,25 +620,25 @@
                     this.updateInst({
                         objId: this.objId,
                         instId: originalValues['bk_inst_id'],
-                        params: this.$injectMetadata(values, { inject: !this.isPublicModel })
+                        params: values
                     }).then(() => {
-                        this.getTableData()
-                        this.searchInstById({
-                            objId: this.objId,
-                            instId: originalValues['bk_inst_id'],
-                            params: this.$injectMetadata({}, { inject: !this.isPublicModel })
-                        }).then(item => {
-                            this.attribute.inst.details = this.$tools.flattenItem(this.properties, item)
-                        })
+                        this.attribute.inst.details = Object.assign({}, originalValues, values)
                         this.handleCancel()
                         this.$success(this.$t('修改成功'))
+                        RouterQuery.set({
+                            _t: Date.now()
+                        })
                     })
                 } else {
+                    delete values.bk_inst_id // properties中注入了前端自定义的bk_inst_id属性
                     this.createInst({
-                        params: this.$injectMetadata(values, { inject: !this.isPublicModel }),
+                        params: values,
                         objId: this.objId
                     }).then(() => {
-                        this.handlePageChange(1)
+                        RouterQuery.set({
+                            _t: Date.now(),
+                            page: 1
+                        })
                         this.handleCancel()
                         this.$success(this.$t('创建成功'))
                     })
@@ -634,17 +647,9 @@
             handleCancel () {
                 if (this.attribute.type === 'create') {
                     this.slider.show = false
-                } else {
-                    this.attribute.type = 'details'
                 }
             },
-            async handleMultipleEdit () {
-                this.objectUnique = await this.$store.dispatch('objectUnique/searchObjectUniqueConstraints', {
-                    objId: this.objId,
-                    params: this.$injectMetadata({}, {
-                        inject: !this.isPublicModel
-                    })
-                })
+            handleMultipleEdit () {
                 this.attribute.type = 'multiple'
                 this.slider.title = this.$t('批量更新')
                 this.slider.show = true
@@ -652,20 +657,24 @@
             handleMultipleSave (values) {
                 this.batchUpdateInst({
                     objId: this.objId,
-                    params: this.$injectMetadata({
+                    params: {
                         update: this.table.checked.map(instId => {
                             return {
                                 'datas': values,
                                 'inst_id': instId
                             }
                         })
-                    }, { inject: !this.isPublicModel }),
+                    },
                     config: {
                         requestId: `${this.objId}BatchUpdate`
                     }
                 }).then(() => {
                     this.$success(this.$t('修改成功'))
-                    this.handlePageChange(1)
+                    this.slider.show = false
+                    RouterQuery.set({
+                        _t: Date.now(),
+                        page: 1
+                    })
                 })
             },
             handleMultipleCancel () {
@@ -683,16 +692,18 @@
                 this.batchDeleteInst({
                     objId: this.objId,
                     config: {
-                        data: this.$injectMetadata({
+                        data: {
                             'delete': {
                                 'inst_ids': this.table.checked
                             }
-                        }, { inject: !this.isPublicModel })
+                        }
                     }
                 }).then(() => {
                     this.$success(this.$t('删除成功'))
                     this.table.checked = []
-                    this.getTableData()
+                    RouterQuery.set({
+                        _t: Date.now()
+                    })
                 })
             },
             handleApplyColumnsConfig (properties) {
@@ -705,17 +716,19 @@
                 this.$store.dispatch('userCustom/saveUsercustom', {
                     [this.customConfigKey]: []
                 })
+                this.columnsConfig.show = false
             },
             routeToHistory () {
-                this.$router.push({
-                    name: 'history',
+                this.$routerActions.redirect({
+                    name: 'instanceHistory',
                     params: {
                         objId: this.objId
-                    }
+                    },
+                    history: true
                 })
             },
             handleSliderBeforeClose () {
-                if (this.tab.active === 'attribute' && this.attribute.type !== 'details') {
+                if (this.tab.active === 'attribute') {
                     const $form = this.attribute.type === 'multiple' ? this.$refs.multipleForm : this.$refs.form
                     if ($form.hasChange) {
                         return new Promise((resolve, reject) => {
@@ -743,9 +756,6 @@
                 if (customFields) {
                     data.append('export_custom_fields', customFields)
                 }
-                if (!this.isPublicModel) {
-                    data.append('metadata', JSON.stringify(this.$injectMetadata().metadata))
-                }
                 this.$http.download({
                     url: this.url.export,
                     method: 'post',
@@ -762,19 +772,22 @@
 
 <style lang="scss" scoped>
     .models-layout {
-        padding: 0 20px;
+        padding: 15px 20px 0;
     }
     .options-filter{
         position: relative;
         margin-right: 5px;
         .filter-selector{
-            width: 115px;
+            width: 120px;
             border-radius: 2px 0 0 2px;
             margin-right: -1px;
         }
         .filter-value{
             width: 320px;
             border-radius: 0 2px 2px 0;
+            /deep/ .bk-form-input {
+                line-height: 32px;
+            }
         }
         .filter-search{
             position: absolute;
@@ -788,14 +801,6 @@
         position: relative;
         &:hover{
             z-index: 1;
-            &.button-delete {
-                color: $cmdbDangerColor;
-                border-color: $cmdbDangerColor;
-            }
-            /deep/ &.bk-button.bk-default[disabled] {
-                border-color: #dcdee5 !important;
-                color: #c4c6cc !important;
-            }
         }
     }
     .models-table{

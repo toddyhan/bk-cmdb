@@ -14,14 +14,26 @@ package mongo
 
 import (
 	"fmt"
-	"strconv"
 	"strings"
 	"time"
 
-	"configcenter/src/common/backbone"
 	"configcenter/src/storage/dal"
 	"configcenter/src/storage/dal/mongo/local"
-	"configcenter/src/storage/dal/mongo/remote"
+)
+
+const (
+	// if maxOpenConns isn't configured, use default value
+	DefaultMaxOpenConns = 1000
+	// if maxOpenConns exceeds maximum value, use maximum value
+	MaximumMaxOpenConns = 3000
+	// if maxIDleConns is less than minimum value, use minimum value
+	MinimumMaxIdleOpenConns = 50
+	// if timeout isn't configured, use default value
+	DefaultSocketTimeout = 10
+	// if timeout exceeds maximum value, use maximum value
+	MaximumSocketTimeout = 30
+	// if timeout less than the minimum value, use minimum value
+	MinimumSocketTimeout = 5
 )
 
 // Config config
@@ -33,9 +45,10 @@ type Config struct {
 	Port         string
 	Database     string
 	Mechanism    string
-	MaxOpenConns string
-	MaxIdleConns string
-	Enable       string
+	MaxOpenConns uint64
+	MaxIdleConns uint64
+	RsName       string
+	SocketTimeout   int
 }
 
 // BuildURI return mongo uri according to  https://docs.mongodb.com/manual/reference/connection-string/
@@ -53,62 +66,29 @@ func (c Config) BuildURI() string {
 	c.Password = strings.Replace(c.Password, "@", "%40", -1)
 	c.User = strings.Replace(c.User, ":", "%3a", -1)
 	c.Password = strings.Replace(c.Password, ":", "%3a", -1)
-	uri := fmt.Sprintf("mongodb://%s:%s@%s/%s", c.User, c.Password, c.Address, c.Database)
-	if c.Mechanism != "" {
-		uri += "?authMechanism=" + c.Mechanism
-	}
+	uri := fmt.Sprintf("mongodb://%s:%s@%s/%s?authMechanism=%s", c.User, c.Password, c.Address, c.Database, c.Mechanism)
 	return uri
 }
 
-func (c Config) GetMaxOpenConns() int {
-	max, err := strconv.Atoi(c.MaxOpenConns)
-	if err != nil {
-		return 0
-	}
-	return max
-}
-
-func (c Config) GetMaxIdleConns() int {
-	max, err := strconv.Atoi(c.MaxIdleConns)
-	if err != nil {
-		return 0
-	}
-	return max
-}
-
-// ParseConfigFromKV returns a new config
-func ParseConfigFromKV(prefix string, conifgmap map[string]string) Config {
-	return Config{
-		Address:      conifgmap[prefix+".host"],
-		Port:         conifgmap[prefix+".port"],
-		User:         conifgmap[prefix+".usr"],
-		Password:     conifgmap[prefix+".pwd"],
-		Database:     conifgmap[prefix+".database"],
-		MaxOpenConns: conifgmap[prefix+".maxOpenConns"],
-		MaxIdleConns: conifgmap[prefix+".maxIDleConns"],
-		Mechanism:    conifgmap[prefix+".mechanism"],
-		Enable:       conifgmap[prefix+".enable"],
+func (c Config) GetMongoConf() local.MongoConf {
+	return local.MongoConf{
+		MaxOpenConns: c.MaxOpenConns,
+		MaxIdleConns: c.MaxIdleConns,
+		URI:          c.BuildURI(),
+		RsName:       c.RsName,
+		SocketTimeout:  c.SocketTimeout,
 	}
 }
 
-func (c Config) GetMongoClient(engine *backbone.Engine) (db dal.RDB, err error) {
-	if c.Enable == "true" {
-		db, err = local.NewMgo(c.BuildURI(), time.Minute)
-	} else {
-		db, err = remote.NewWithDiscover(engine)
+func (c Config) GetMongoClient() (db dal.RDB, err error) {
+	mongoConf := local.MongoConf{
+		MaxOpenConns: c.MaxOpenConns,
+		MaxIdleConns: c.MaxIdleConns,
+		URI:          c.BuildURI(),
+		RsName:       c.RsName,
+		SocketTimeout: c.SocketTimeout,
 	}
-	if err != nil {
-		return nil, fmt.Errorf("connect mongo server failed %s", err.Error())
-	}
-	return
-}
-
-func (c Config) GetTransactionClient(engine *backbone.Engine) (client dal.Transcation, err error) {
-	if c.Enable == "true" {
-		client, err = local.NewMgo(c.BuildURI(), time.Minute)
-	} else {
-		client, err = remote.NewWithDiscover(engine)
-	}
+	db, err = local.NewMgo(mongoConf, time.Minute)
 	if err != nil {
 		return nil, fmt.Errorf("connect mongo server failed %s", err.Error())
 	}

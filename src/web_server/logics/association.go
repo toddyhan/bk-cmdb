@@ -19,11 +19,12 @@ import (
 	"configcenter/src/common"
 	"configcenter/src/common/blog"
 	"configcenter/src/common/condition"
+	"configcenter/src/common/mapstr"
 	"configcenter/src/common/metadata"
 	"configcenter/src/common/util"
 )
 
-func (lgc *Logics) getAssociationData(ctx context.Context, header http.Header, objID string, instAsstArr []*metadata.InstAsst, meta *metadata.Metadata) (map[string]map[int64][]PropertyPrimaryVal, error) {
+func (lgc *Logics) getAssociationData(ctx context.Context, header http.Header, objID string, instAsstArr []*metadata.InstAsst, modelBizID int64) (map[string]map[int64][]PropertyPrimaryVal, error) {
 
 	// map[objID][]instID
 	asstObjIDIDArr := make(map[string][]int64)
@@ -33,53 +34,73 @@ func (lgc *Logics) getAssociationData(ctx context.Context, header http.Header, o
 			asstObjIDIDArr[instAsst.AsstObjectID] = make([]int64, 0)
 		}
 		asstObjIDIDArr[instAsst.AsstObjectID] = append(asstObjIDIDArr[instAsst.AsstObjectID], instAsst.AsstInstID)
+		_, ok = asstObjIDIDArr[instAsst.ObjectID]
+		if !ok {
+			asstObjIDIDArr[instAsst.ObjectID] = make([]int64, 0)
+		}
+		asstObjIDIDArr[instAsst.ObjectID] = append(asstObjIDIDArr[instAsst.ObjectID], instAsst.InstID)
 	}
 
 	// map[objID]map[inst_id][]Property
 	retAsstObjIDInstInfoMap := make(map[string]map[int64][]PropertyPrimaryVal)
 	for itemObjID, asstInstIDArr := range asstObjIDIDArr {
-		objPrimaryInfo, err := lgc.fetchInstAssocationData(ctx, header, itemObjID, asstInstIDArr, meta)
+		objPrimaryInfo, err := lgc.fetchInstAssocationData(ctx, header, itemObjID, asstInstIDArr, modelBizID)
 		if err != nil {
 			return nil, err
 		}
 		retAsstObjIDInstInfoMap[itemObjID] = objPrimaryInfo
 	}
-
 	return retAsstObjIDInstInfoMap, nil
 }
 
-func (lgc *Logics) fetchAssocationData(ctx context.Context, header http.Header, objID string, instIDArr []int64, metadataParams *metadata.Metadata) ([]*metadata.InstAsst, error) {
+func (lgc *Logics) fetchAssocationData(ctx context.Context, header http.Header, objID string, instIDArr []int64, modelBizID int64) ([]*metadata.InstAsst, error) {
 	rid := util.ExtractRequestIDFromContext(ctx)
 
 	ccErr := lgc.CCErr.CreateDefaultCCErrorIf(util.GetLanguage(header))
 	input := &metadata.SearchAssociationInstRequest{}
+
+	//实例作为关联关系源模型
 	cond := condition.CreateCondition()
 	cond.Field(common.BKObjIDField).Eq(objID)
 	cond.Field(common.BKInstIDField).In(instIDArr)
 	input.Condition = cond.ToMapStr()
-	if metadataParams != nil {
-		input.Condition.Set(common.MetadataField, metadataParams)
+	if modelBizID > 0 {
+		input.Condition.Set(common.BKAppIDField, modelBizID)
 	}
-
-	result, err := lgc.CoreAPI.ApiServer().SearchAssociationInst(ctx, header, input)
+	bkObjRst, err := lgc.CoreAPI.ApiServer().SearchAssociationInst(ctx, header, input)
 	if err != nil {
 		blog.Errorf("GetAssocationData fetch %s association  error:%s, input;%+v, rid: %s", objID, err.Error(), input, rid)
 		return nil, ccErr.Error(common.CCErrCommHTTPDoRequestFailed)
 	}
-
-	if !result.Result {
-		blog.Errorf("GetAssocationData fetch %s association  error code:%s, error msg:%s, input;%+v, rid:%s", objID, result.Code, result.ErrMsg, input, rid)
-		return nil, ccErr.New(result.Code, result.ErrMsg)
+	if !bkObjRst.Result {
+		blog.Errorf("GetAssocationData fetch %s association  error code:%s, error msg:%s, input;%+v, rid:%s", objID, bkObjRst.Code, bkObjRst.ErrMsg, input, rid)
+		return nil, ccErr.New(bkObjRst.Code, bkObjRst.ErrMsg)
 	}
 
-	return result.Data, nil
+	//实例作为关联关系目标模型
+	cond = condition.CreateCondition()
+	cond.Field(common.BKAsstObjIDField).Eq(objID)
+	cond.Field(common.BKAsstInstIDField).In(instIDArr)
+	input.Condition = cond.ToMapStr()
+	bkAsstObjRst, err := lgc.CoreAPI.ApiServer().SearchAssociationInst(ctx, header, input)
+	if err != nil {
+		blog.Errorf("GetAssocationData fetch %s association  error:%s, input;%+v, rid: %s", objID, err.Error(), input, rid)
+		return nil, ccErr.Error(common.CCErrCommHTTPDoRequestFailed)
+	}
+	if !bkAsstObjRst.Result {
+		blog.Errorf("GetAssocationData fetch %s association  error code:%s, error msg:%s, input;%+v, rid:%s", objID, bkAsstObjRst.Code, bkAsstObjRst.ErrMsg, input, rid)
+		return nil, ccErr.New(bkAsstObjRst.Code, bkAsstObjRst.ErrMsg)
+	}
+	result := append(bkObjRst.Data[:], bkAsstObjRst.Data...)
+
+	return result, nil
 }
 
-func (lgc *Logics) fetchInstAssocationData(ctx context.Context, header http.Header, objID string, instIDArr []int64, meta *metadata.Metadata) (map[int64][]PropertyPrimaryVal, error) {
+func (lgc *Logics) fetchInstAssocationData(ctx context.Context, header http.Header, objID string, instIDArr []int64, modelBizID int64) (map[int64][]PropertyPrimaryVal, error) {
 	rid := util.ExtractRequestIDFromContext(ctx)
 
 	ccErr := lgc.CCErr.CreateDefaultCCErrorIf(util.GetLanguage(header))
-	propertyArr, err := lgc.getObjectPrimaryFieldByObjID(objID, header, meta)
+	propertyArr, err := lgc.getObjectPrimaryFieldByObjID(objID, header, modelBizID)
 	if err != nil {
 		return nil, err
 	}
@@ -91,13 +112,18 @@ func (lgc *Logics) fetchInstAssocationData(ctx context.Context, header http.Head
 
 	dbFields = append(dbFields, instIDKey)
 
-	instAsstCond := condition.CreateCondition()
-	instAsstCond.Field(instIDKey).In(instIDArr)
-	instAsstCond.SetFields(dbFields)
+	instAsstCond := mapstr.MapStr{
+		"condition": mapstr.MapStr{
+			instIDKey: mapstr.MapStr{
+				common.BKDBIN: instIDArr,
+			},
+		},
+		"fields": dbFields,
+	}
 
-	instResult, err := lgc.CoreAPI.ApiServer().SearchInsts(ctx, header, objID, instAsstCond)
+	instResult, err := lgc.CoreAPI.ApiServer().GetInstDetail(ctx, header, objID, instAsstCond)
 	if err != nil {
-		blog.ErrorJSON("GetAssocationData fetch %s association instance error:%s, input:%s, rid:%s", objID, err.Error(), instAsstCond.ToMapStr(), rid)
+		blog.ErrorJSON("GetAssocationData fetch %s association instance error:%s, input:%s, rid:%s", objID, err.Error(), instAsstCond, rid)
 		return nil, ccErr.Error(common.CCErrCommHTTPDoRequestFailed)
 	}
 

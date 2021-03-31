@@ -1,51 +1,17 @@
-import { viewRouters } from '@/router'
-
+import { getAuthorizedBusiness } from '@/router/business-interceptor.js'
 const preloadConfig = {
-    fromCache: true,
+    fromCache: false,
     cancelWhenRouteChange: false
-}
-
-export function getAdminEntranceAuth (app) {
-    return app.$store.dispatch('auth/getAdminEntranceAuth', {
-        params: {},
-        config: {
-            ...preloadConfig,
-            requestId: 'getAdminEntranceAuth'
-        }
-    })
-}
-
-export function getViewAuth (app) {
-    const viewAuthorities = []
-    viewRouters.forEach(route => {
-        const meta = route.meta || {}
-        const auth = meta.auth || {}
-        if (auth.view) {
-            viewAuthorities.push(...Object.values(auth.view))
-        }
-    })
-    return app.$store.dispatch('auth/getAuth', {
-        type: 'view',
-        list: viewAuthorities,
-        config: {
-            ...preloadConfig,
-            requestId: 'getViewAuth'
-        }
-    })
 }
 
 export function getClassifications (app) {
     return app.$store.dispatch('objectModelClassify/searchClassificationsObjects', {
-        params: app.$injectMetadata(),
+        params: {},
         config: {
             ...preloadConfig,
             requestId: 'post_searchClassificationsObjects'
         }
     })
-}
-
-export function getAuthorizedBusiness (app) {
-    return app.$store.dispatch('objectBiz/getAuthorizedBusiness')
 }
 
 export function getUserCustom (app) {
@@ -58,21 +24,38 @@ export function getUserCustom (app) {
     })
 }
 
-export function getUserList (app) {
-    return app.$store.dispatch('getUserList').then(list => {
-        list = list || []
-        window.CMDB_USER_LIST = list
-        app.$store.commit('setUserList', list)
-        return list
-    }).catch(e => {
-        window.CMDB_USER_LIST = []
+export function getGlobalUsercustom (app) {
+    return app.$store.dispatch('userCustom/getGlobalUsercustom', {
+        config: {
+            ...preloadConfig,
+            fromCache: false,
+            globalError: false
+        }
+    }).catch(() => {
+        return {}
+    })
+}
+
+export async function getConfig (app) {
+    return app.$store.dispatch('getConfig', {
+        config: {
+            ...preloadConfig,
+            fromCache: false,
+            globalError: false
+        }
+    }).then(data => {
+        app.$store.commit('setConfig', data)
+    }).catch(() => {
+        window.CMDB_CONFIG = {}
     })
 }
 
 export default async function (app) {
+    getAuthorizedBusiness(app)
     return Promise.all([
-        getViewAuth(app),
+        getConfig(app),
         getClassifications(app),
-        getUserCustom(app)
+        getUserCustom(app),
+        getGlobalUsercustom(app)
     ])
 }

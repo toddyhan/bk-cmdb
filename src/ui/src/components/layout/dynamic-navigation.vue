@@ -5,7 +5,7 @@
         @mouseleave="handleMouseLeave">
         <div class="nav-wrapper"
             :class="{ unfold: unfold, flexible: !navStick }">
-            <div class="business-wrapper" v-if="businessSelectorVisible">
+            <div class="business-wrapper" v-show="isBusinessNav">
                 <transition name="fade">
                     <cmdb-business-selector class="business-selector"
                         v-show="unfold"
@@ -13,69 +13,31 @@
                         :popover-options="{
                             appendTo: () => this.$el
                         }"
-                        :request-config="{ fromCache: true }"
-                        @on-select="handleToggleBusiness"
-                        @business-empty="handleBusinessEmpty">
+                        @select="handleToggleBusiness">
                     </cmdb-business-selector>
                 </transition>
                 <transition name="fade">
                     <i class="business-flag bk-icon icon-angle-down" v-show="!unfold"></i>
                 </transition>
             </div>
-            <ul class="menu-list">
+            <div class="menu-list">
                 <template v-for="(menu, index) in currentMenus">
-                    <router-link class="menu-item is-link" tag="li" active-class="active"
+                    <router-link class="menu-item is-link" tag="a" active-class="active" style="display: block;"
                         v-if="menu.hasOwnProperty('route')"
+                        ref="menuLink"
                         :class="{
                             'is-relative-active': isRelativeActive(menu)
                         }"
                         :key="index"
-                        :to="menu.route"
+                        :to="getMenuLink(menu)"
                         :title="$t(menu.i18n)">
                         <h3 class="menu-info clearfix">
                             <i :class="['menu-icon', menu.icon]"></i>
                             <span class="menu-name">{{$t(menu.i18n)}}</span>
-                            <i class="bk-icon icon-close"
-                                v-if="isCollection(menu)"
-                                @click.stop.prevent="handleDeleteCollection(menu)">
-                            </i>
                         </h3>
                     </router-link>
-                    <li class="menu-item"
-                        v-else
-                        :key="index"
-                        :class="{
-                            'is-open': unfold && isMenuExpanded(menu)
-                        }">
-                        <h3 class="menu-info clearfix" @click="handleMenuClick(menu)">
-                            <i :class="['menu-icon', menu.icon]"></i>
-                            <span class="menu-name">{{$t(menu.i18n)}}</span>
-                            <i class="toggle-icon bk-icon icon-angle-right"
-                                v-if="menu.submenu && menu.submenu.length"
-                                :class="{ open: unfold && isMenuExpanded(menu) }">
-                            </i>
-                        </h3>
-                        <cmdb-collapse-transition>
-                            <div class="menu-submenu"
-                                v-if="menu.submenu && menu.submenu.length"
-                                v-show="unfold && isMenuExpanded(menu)">
-                                <router-link class="submenu-link"
-                                    v-for="(submenu, submenuIndex) in menu.submenu"
-                                    exact
-                                    active-class="active"
-                                    :class="{
-                                        'is-relative-active': isRelativeActive(submenu)
-                                    }"
-                                    :key="submenuIndex"
-                                    :to="submenu.route"
-                                    :title="$t(submenu.i18n)">
-                                    {{$t(submenu.i18n)}}
-                                </router-link>
-                            </div>
-                        </cmdb-collapse-transition>
-                    </li>
                 </template>
-            </ul>
+            </div>
             <div class="nav-option">
                 <i class="nav-stick icon icon-cc-nav-toggle"
                     :class="{
@@ -92,6 +54,8 @@
     import { mapGetters } from 'vuex'
     import MENU_DICTIONARY from '@/dictionary/menu'
     import {
+        MENU_BUSINESS,
+        MENU_BUSINESS_HOST_AND_SERVICE,
         MENU_RESOURCE,
         MENU_RESOURCE_BUSINESS,
         MENU_RESOURCE_HOST,
@@ -104,17 +68,23 @@
     export default {
         data () {
             return {
-                NAV_COLLECT: 'collect',
                 routerLinkHeight: 42,
                 timer: null,
                 state: {},
-                menus: []
+                hasExactActive: false
             }
         },
         computed: {
-            ...mapGetters(['navStick', 'navFold', 'admin', 'businessSelectorVisible']),
+            ...mapGetters(['navStick', 'navFold', 'admin']),
             ...mapGetters('userCustom', ['usercustom']),
             ...mapGetters('objectModelClassify', ['classifications', 'models']),
+            isBusinessNav () {
+                const matched = this.$route.matched
+                if (!matched.length) {
+                    return false
+                }
+                return matched[0].name === MENU_BUSINESS
+            },
             unfold () {
                 return this.navStick || !this.navFold
             },
@@ -137,7 +107,7 @@
                         collection.unshift('biz')
                     }
                     return collection.filter(modelId => {
-                        return this.models.some(model => model.bk_obj_id === modelId)
+                        return this.models.some(model => model.bk_obj_id === modelId && !model.bk_ispaused)
                     })
                 }
                 return []
@@ -159,13 +129,11 @@
                 if (this.owner === MENU_RESOURCE) {
                     menus.splice(1, 0, ...this.collectionMenus)
                 }
-                return menus.filter(menu => {
-                    return menu.hasOwnProperty('route') || (Array.isArray(menu.submenu) && menu.submenu.length)
-                })
+                return menus
             },
             relativeActiveName () {
                 const relative = this.$tools.getValue(this.$route, 'meta.menu.relative')
-                if (relative) {
+                if (relative && !this.hasExactActive) {
                     const names = Array.isArray(relative) ? relative : [relative]
                     let relativeActiveName = null
                     for (let index = 0; index < names.length; index++) {
@@ -193,6 +161,7 @@
                 immediate: true,
                 handler () {
                     this.setDefaultExpand()
+                    this.checkExactActive()
                 }
             }
         },
@@ -213,11 +182,13 @@
                     }
                 }
             },
-            isMenuExpanded (menu) {
-                if (this.state.hasOwnProperty(menu.id)) {
-                    return this.state[menu.id].expanded
+            checkExactActive () {
+                if (!this.$refs.menuLink) {
+                    return
                 }
-                return false
+                this.$nextTick(() => {
+                    this.hasExactActive = this.$refs.menuLink.some(link => link.$el.classList.contains('active'))
+                })
             },
             isRelativeActive (menu) {
                 return menu.route.name === this.relativeActiveName
@@ -239,8 +210,16 @@
                     }
                 }
             },
-            isCollection (menu) {
-                return menu.id.startsWith('collection')
+            getMenuLink (menu) {
+                if (this.isBusinessNav) {
+                    return {
+                        name: menu.route.name,
+                        params: {
+                            bizId: this.$store.getters['objectBiz/bizId']
+                        }
+                    }
+                }
+                return menu.route
             },
             handleMouseEnter () {
                 if (this.timer) {
@@ -253,31 +232,6 @@
                     this.$store.commit('setNavStatus', { fold: true })
                 }, 300)
             },
-            // 分类点击事件
-            handleMenuClick (menu) {
-                this.checkPath(menu)
-                this.toggleMenu(menu)
-            },
-            getMenuModelsStyle (menu) {
-                const submenuCount = (menu.submenu || []).length
-                return {
-                    height: this.isMenuExpanded(menu) ? submenuCount * this.routerLinkHeight + 'px' : 0
-                }
-            },
-            // 被点击的有对应的路由，则跳转
-            checkPath (menu) {
-                if (menu.path) {
-                    this.$router.push({ path: menu.path })
-                }
-            },
-            // 切换展开的分类
-            toggleMenu (menu) {
-                if (this.state.hasOwnProperty(menu.id)) {
-                    this.state[menu.id].expanded = !this.state[menu.id].expanded
-                } else {
-                    this.$set(this.state, menu.id, { expanded: true })
-                }
-            },
             // 切换导航展开固定
             toggleNavStick () {
                 this.$store.commit('setNavStatus', {
@@ -285,32 +239,18 @@
                     stick: !this.navStick
                 })
             },
-            async handleDeleteCollection (menu) {
-                try {
-                    const modelId = menu.id.split('collection_')[1]
-                    const map = {
-                        host: MENU_RESOURCE_HOST_COLLECTION,
-                        biz: MENU_RESOURCE_BUSINESS_COLLECTION
-                    }
-                    if (Object.keys(map).includes(modelId)) {
-                        await this.$store.dispatch('userCustom/saveUsercustom', {
-                            [map[modelId]]: false
-                        })
-                    } else {
-                        await this.$store.dispatch('userCustom/saveUsercustom', {
-                            [MENU_RESOURCE_COLLECTION]: this.usercustom[MENU_RESOURCE_COLLECTION].filter(id => id !== modelId)
-                        })
-                    }
-                    this.$success(this.$t('取消导航成功'))
-                } catch (e) {
-                    console.log(e)
+            handleToggleBusiness (id, oldValue) {
+                if (!oldValue || id === oldValue) {
+                    return false
                 }
-            },
-            handleToggleBusiness (id) {
-                this.$emit('business-change', id)
-            },
-            handleBusinessEmpty () {
-                this.$emit('business-empty')
+                this.$routerActions.redirect({
+                    name: MENU_BUSINESS_HOST_AND_SERVICE,
+                    params: {
+                        ...this.$route.params,
+                        bizId: id
+                    },
+                    reload: true
+                })
             }
         }
     }
@@ -355,8 +295,8 @@ $color: #63656E;
 
 .business-wrapper {
     position: relative;
-    padding: 13px 0;
-    height: 59px;
+    padding: 10px 0;
+    height: 53px;
     border-bottom: 1px solid #DCDEE5;
     overflow: hidden;
     .business-selector {
@@ -366,13 +306,13 @@ $color: #63656E;
     }
     .business-flag {
         position: absolute;
-        left: 14px;
-        top: 13px;
+        left: 10px;
+        top: 9px;
         width: 32px;
         height: 32px;
         line-height: 30px;
         text-align: center;
-        font-size: 12px;
+        font-size: 20px;
         border: 1px solid #C4C6CC;
         border-radius: 2px;
     }
@@ -467,8 +407,8 @@ $color: #63656E;
         .toggle-icon {
             display: inline-block;
             vertical-align: top;
-            margin: 18px;
-            font-size: 12px;
+            margin: 14px;
+            font-size: 20px;
             transition: all $duration $cubicBezier;
 
             &.open {

@@ -9,6 +9,7 @@ import (
 	"configcenter/src/common/metadata"
 	"configcenter/src/test"
 	"configcenter/src/test/reporter"
+	"configcenter/src/test/util"
 
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
@@ -18,7 +19,7 @@ var header = test.GetHeader()
 var eventServerClient = test.GetClientSet().EventServer()
 
 func TestEventServer(t *testing.T) {
-	RegisterFailHandler(Fail)
+	RegisterFailHandler(util.Fail)
 	reporters := []Reporter{
 		reporter.NewHtmlReporter(test.GetReportDir()+"eventserver.html", test.GetReportUrl(), true),
 	}
@@ -36,6 +37,7 @@ var _ = Describe("event server test", func() {
 			It("ping subscription", func() {
 				input := map[string]interface{}{}
 				rsp, err := eventServerClient.Ping(context.Background(), header, input)
+				util.RegisterResponse(rsp)
 				Expect(err).NotTo(HaveOccurred())
 				Expect(rsp.Result).To(Equal(true))
 			})
@@ -43,6 +45,7 @@ var _ = Describe("event server test", func() {
 			It("testing connection", func() {
 				input := map[string]interface{}{}
 				rsp, err := eventServerClient.Telnet(context.Background(), header, input)
+				util.RegisterResponse(rsp)
 				Expect(err).NotTo(HaveOccurred())
 				Expect(rsp.Result).To(Equal(true))
 			})
@@ -59,6 +62,7 @@ var _ = Describe("event server test", func() {
 				TimeOutSeconds:   60,
 			}
 			rsp, err := eventServerClient.Subscribe(context.Background(), "0", "0", header, input)
+			util.RegisterResponse(rsp)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(rsp.Result).To(Equal(true))
 			j, err := json.Marshal(rsp)
@@ -78,6 +82,7 @@ var _ = Describe("event server test", func() {
 				TimeOutSeconds:   60,
 			}
 			rsp, err := eventServerClient.Subscribe(context.Background(), "0", "0", header, input)
+			util.RegisterResponse(rsp)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(rsp.Result).To(Equal(true))
 			j, err := json.Marshal(rsp)
@@ -95,6 +100,7 @@ var _ = Describe("event server test", func() {
 				},
 			}
 			rsp, err := eventServerClient.Query(context.Background(), "0", "0", header, input)
+			util.RegisterResponse(rsp)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(rsp.Result).To(Equal(true))
 			j, err := json.Marshal(rsp.Data)
@@ -115,6 +121,7 @@ var _ = Describe("event server test", func() {
 				},
 			}
 			rsp, err := eventServerClient.Query(context.Background(), "0", "0", header, input)
+			util.RegisterResponse(rsp)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(rsp.Result).To(Equal(true))
 			j, err := json.Marshal(rsp.Data)
@@ -136,12 +143,14 @@ var _ = Describe("event server test", func() {
 				TimeOutSeconds:   60,
 			}
 			rsp, err := eventServerClient.Rebook(context.Background(), "0", "0", subscriptionId1, header, input)
+			util.RegisterResponse(rsp)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(rsp.Result).To(Equal(true))
 		})
 
 		It("unsubscribe event bk_biz_id = 0 and subscription_id = 2", func() {
 			rsp, err := eventServerClient.UnSubscribe(context.Background(), "0", "0", subscriptionId2, header)
+			util.RegisterResponse(rsp)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(rsp.Result).To(Equal(true))
 		})
@@ -155,6 +164,7 @@ var _ = Describe("event server test", func() {
 				},
 			}
 			rsp, err := eventServerClient.Query(context.Background(), "0", "0", header, input)
+			util.RegisterResponse(rsp)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(rsp.Result).To(Equal(true))
 			j, err := json.Marshal(rsp.Data)
@@ -172,6 +182,7 @@ var _ = Describe("event server test", func() {
 
 		It("unsubscribe event bk_biz_id = 0 and subscription_id = 1", func() {
 			rsp, err := eventServerClient.UnSubscribe(context.Background(), "0", "0", subscriptionId1, header)
+			util.RegisterResponse(rsp)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(rsp.Result).To(Equal(true))
 		})
@@ -191,6 +202,7 @@ var _ = Describe("event server test", func() {
 					TimeOutSeconds:   60,
 				}
 				rsp, err := eventServerClient.Subscribe(context.Background(), "0", "0", header, input)
+				util.RegisterResponse(rsp)
 				Expect(err).NotTo(HaveOccurred())
 				Expect(rsp.Result).To(Equal(false))
 			})
@@ -205,6 +217,7 @@ var _ = Describe("event server test", func() {
 					TimeOutSeconds:   60,
 				}
 				rsp, err := eventServerClient.Subscribe(context.Background(), "0", "0", header, input)
+				util.RegisterResponse(rsp)
 				Expect(err).NotTo(HaveOccurred())
 				Expect(rsp.Result).To(Equal(false))
 			})
@@ -219,6 +232,7 @@ var _ = Describe("event server test", func() {
 					TimeOutSeconds:   60,
 				}
 				rsp, err := eventServerClient.Subscribe(context.Background(), "0", "0", header, input)
+				util.RegisterResponse(rsp)
 				Expect(err).NotTo(HaveOccurred())
 				Expect(rsp.Result).To(Equal(false))
 			})
@@ -236,6 +250,7 @@ var _ = Describe("event server test", func() {
 					TimeOutSeconds:   60,
 				}
 				rsp, err := eventServerClient.Subscribe(context.Background(), "0", "0", header, input)
+				util.RegisterResponse(rsp)
 				Expect(err).NotTo(HaveOccurred())
 				Expect(rsp.Result).To(Equal(true))
 				j, err := json.Marshal(rsp)
@@ -253,6 +268,7 @@ var _ = Describe("event server test", func() {
 					},
 				}
 				rsp, err := eventServerClient.Query(context.Background(), "0", "0", header, input)
+				util.RegisterResponse(rsp)
 				Expect(err).NotTo(HaveOccurred())
 				Expect(rsp.Result).To(Equal(true))
 				j, err := json.Marshal(rsp.Data)
@@ -279,8 +295,9 @@ var _ = Describe("event server test", func() {
 					TimeOutSeconds:   10,
 				}
 				rsp, err := eventServerClient.Subscribe(context.Background(), "0", "0", header, input)
+				util.RegisterResponse(rsp)
 				Expect(err).NotTo(HaveOccurred())
-				Expect(rsp.Result).To(Equal(true))
+				Expect(rsp.Result).To(Equal(false))
 			})
 
 			It("search subscribe bk_biz_id = 0", func() {
@@ -292,6 +309,7 @@ var _ = Describe("event server test", func() {
 					},
 				}
 				rsp, err := eventServerClient.Query(context.Background(), "0", "0", header, input)
+				util.RegisterResponse(rsp)
 				Expect(err).NotTo(HaveOccurred())
 				Expect(rsp.Result).To(Equal(true))
 				j, err := json.Marshal(rsp.Data)
@@ -299,12 +317,12 @@ var _ = Describe("event server test", func() {
 				json.Unmarshal(j, &data)
 				Expect(int(data.Count)).To(Equal(1))
 				Expect(data.Info[0].SubscriptionName).To(Equal("dwe"))
-				Expect(data.Info[0].SystemName).To(Equal("abc"))
-				Expect(data.Info[0].CallbackURL).To(Equal("http://127.0.0.1:8080/callback"))
-				Expect(data.Info[0].ConfirmMode).To(Equal("regular"))
-				Expect(data.Info[0].ConfirmPattern).To(Equal(".*"))
-				Expect(data.Info[0].SubscriptionForm).To(Equal("hostcreate"))
-				Expect(int(data.Info[0].TimeOutSeconds)).To(Equal(10))
+				Expect(data.Info[0].SystemName).To(Equal("cmdb"))
+				Expect(data.Info[0].CallbackURL).To(Equal("http://127.0.0.1:8080"))
+				Expect(data.Info[0].ConfirmMode).To(Equal("httpstatus"))
+				Expect(data.Info[0].ConfirmPattern).To(Equal("200"))
+				Expect(data.Info[0].SubscriptionForm).To(Equal("hostdelete"))
+				Expect(int(data.Info[0].TimeOutSeconds)).To(Equal(60))
 			})
 		})
 
@@ -320,6 +338,7 @@ var _ = Describe("event server test", func() {
 					TimeOutSeconds:   60,
 				}
 				rsp, err := eventServerClient.Subscribe(context.Background(), "0", "0", header, input)
+				util.RegisterResponse(rsp)
 				Expect(err).NotTo(HaveOccurred())
 				Expect(rsp.Result).To(Equal(false))
 			})
@@ -335,6 +354,7 @@ var _ = Describe("event server test", func() {
 					TimeOutSeconds:   60,
 				}
 				rsp, err := eventServerClient.Subscribe(context.Background(), "0", "0", header, input)
+				util.RegisterResponse(rsp)
 				Expect(err).NotTo(HaveOccurred())
 				Expect(rsp.Result).To(Equal(false))
 			})
@@ -351,6 +371,7 @@ var _ = Describe("event server test", func() {
 						TimeOutSeconds:   60,
 					}
 					rsp, err := eventServerClient.Subscribe(context.Background(), "0", "0", header, input)
+					util.RegisterResponse(rsp)
 					Expect(err).NotTo(HaveOccurred())
 					Expect(rsp.Result).To(Equal(false))
 				})
@@ -367,6 +388,7 @@ var _ = Describe("event server test", func() {
 					},
 				}
 				rsp, err := eventServerClient.Query(context.Background(), "0", "0", header, input)
+				util.RegisterResponse(rsp)
 				Expect(err).NotTo(HaveOccurred())
 				Expect(rsp.Result).To(Equal(false))
 			})
@@ -380,6 +402,7 @@ var _ = Describe("event server test", func() {
 					},
 				}
 				rsp, err := eventServerClient.Query(context.Background(), "0", "0", header, input)
+				util.RegisterResponse(rsp)
 				Expect(err).NotTo(HaveOccurred())
 				Expect(rsp.Result).To(Equal(true))
 				j, err := json.Marshal(rsp.Data)
@@ -400,6 +423,7 @@ var _ = Describe("event server test", func() {
 					TimeOutSeconds:   60,
 				}
 				rsp, err := eventServerClient.Rebook(context.Background(), "0", "0", fmt.Sprintf("%d", subscriptionId), header, input)
+				util.RegisterResponse(rsp)
 				Expect(err).NotTo(HaveOccurred())
 				Expect(rsp.Result).To(Equal(false))
 			})
@@ -414,6 +438,7 @@ var _ = Describe("event server test", func() {
 					TimeOutSeconds:   60,
 				}
 				rsp, err := eventServerClient.Rebook(context.Background(), "0", "0", fmt.Sprintf("%d", subscriptionId), header, input)
+				util.RegisterResponse(rsp)
 				Expect(err).NotTo(HaveOccurred())
 				Expect(rsp.Result).To(Equal(false))
 			})
@@ -428,6 +453,7 @@ var _ = Describe("event server test", func() {
 					TimeOutSeconds:   60,
 				}
 				rsp, err := eventServerClient.Rebook(context.Background(), "0", "0", fmt.Sprintf("%d", subscriptionId), header, input)
+				util.RegisterResponse(rsp)
 				Expect(err).NotTo(HaveOccurred())
 				Expect(rsp.Result).To(Equal(false))
 			})
@@ -436,19 +462,68 @@ var _ = Describe("event server test", func() {
 		Describe("update subscribe event with invalid parameters", func() {
 			It("update event subscribe with invalid subscription_id", func() {
 				input := &metadata.Subscription{
-					SubscriptionID:   100,
-					SubscriptionName: "123d",
-					SubscriptionForm: "hostcreate,hostdelete",
+					SubscriptionName: "123",
+					SystemName:       "cmdb",
+					ConfirmMode:      "regular",
+					ConfirmPattern:   ".*",
+					SubscriptionForm: "hostcreate",
+					CallbackURL:      "http://127.0.0.1:8080",
+					TimeOutSeconds:   60,
 				}
-				rsp, err := eventServerClient.Rebook(context.Background(), "0", "0", fmt.Sprintf("%d", subscriptionId), header, input)
+				rsp, err := eventServerClient.Rebook(context.Background(), "0", "0", "1000", header, input)
+				util.RegisterResponse(rsp)
 				Expect(err).NotTo(HaveOccurred())
 				Expect(rsp.Result).To(Equal(false))
+			})
+		})
+
+		Describe("update subscribe event with subscription_id = 1", func() {
+			It("update event subscribe", func() {
+				input := &metadata.Subscription{
+					SubscriptionName: "123",
+					SystemName:       "abc",
+					ConfirmMode:      "regular",
+					ConfirmPattern:   ".*",
+					SubscriptionForm: "hostcreate",
+					CallbackURL:      "http://127.0.0.1:8080/callback",
+					TimeOutSeconds:   10,
+				}
+				rsp, err := eventServerClient.Rebook(context.Background(), "0", "0", fmt.Sprintf("%d", subscriptionId), header, input)
+				util.RegisterResponse(rsp)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(rsp.Result).To(Equal(true))
+			})
+
+			It("search subscribe bk_biz_id = 0", func() {
+				input := metadata.ParamSubscriptionSearch{
+					Page: metadata.BasePage{
+						Sort:  "subscription_id",
+						Limit: 10,
+						Start: 0,
+					},
+				}
+				rsp, err := eventServerClient.Query(context.Background(), "0", "0", header, input)
+				util.RegisterResponse(rsp)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(rsp.Result).To(Equal(true))
+				j, err := json.Marshal(rsp.Data)
+				data := metadata.RspSubscriptionSearch{}
+				json.Unmarshal(j, &data)
+				Expect(int(data.Count)).To(Equal(1))
+				Expect(data.Info[0].SubscriptionName).To(Equal("123"))
+				Expect(data.Info[0].SystemName).To(Equal("abc"))
+				Expect(data.Info[0].CallbackURL).To(Equal("http://127.0.0.1:8080/callback"))
+				Expect(data.Info[0].ConfirmMode).To(Equal("regular"))
+				Expect(data.Info[0].ConfirmPattern).To(Equal(".*"))
+				Expect(data.Info[0].SubscriptionForm).To(Equal("hostcreate"))
+				Expect(int(data.Info[0].TimeOutSeconds)).To(Equal(10))
 			})
 		})
 
 		Describe("unsubscribe event with invalid parameters", func() {
 			It("unsubscribe event with invalid subscription_id", func() {
 				rsp, err := eventServerClient.UnSubscribe(context.Background(), "0", "0", "100", header)
+				util.RegisterResponse(rsp)
 				Expect(err).NotTo(HaveOccurred())
 				Expect(rsp.Result).To(Equal(false))
 			})
@@ -457,12 +532,32 @@ var _ = Describe("event server test", func() {
 		Describe("unsubscribe event twice", func() {
 			It("unsubscribe event with subscription_id = 1", func() {
 				rsp, err := eventServerClient.UnSubscribe(context.Background(), "0", "0", fmt.Sprintf("%d", subscriptionId), header)
+				util.RegisterResponse(rsp)
 				Expect(err).NotTo(HaveOccurred())
 				Expect(rsp.Result).To(Equal(true))
 			})
 
+			It("search subscribe bk_biz_id = 0", func() {
+				input := metadata.ParamSubscriptionSearch{
+					Page: metadata.BasePage{
+						Sort:  "subscription_id",
+						Limit: 10,
+						Start: 0,
+					},
+				}
+				rsp, err := eventServerClient.Query(context.Background(), "0", "0", header, input)
+				util.RegisterResponse(rsp)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(rsp.Result).To(Equal(true))
+				j, err := json.Marshal(rsp.Data)
+				data := metadata.RspSubscriptionSearch{}
+				json.Unmarshal(j, &data)
+				Expect(int(data.Count)).To(Equal(0))
+			})
+
 			It("unsubscribe event with subscription_id = 1", func() {
 				rsp, err := eventServerClient.UnSubscribe(context.Background(), "0", "0", fmt.Sprintf("%d", subscriptionId), header)
+				util.RegisterResponse(rsp)
 				Expect(err).NotTo(HaveOccurred())
 				Expect(rsp.Result).To(Equal(false))
 			})

@@ -1,56 +1,90 @@
 <template>
-    <div id="app" :bk-language="$i18n.locale">
+    <div id="app" v-bkloading="{ isLoading: globalLoading }" :bk-language="$i18n.locale"
+        :class="{
+            'no-breadcrumb': hideBreadcrumbs,
+            'main-full-screen': mainFullScreen
+        }">
         <div class="browser-tips" v-if="showBrowserTips">
             <span class="tips-text">{{$t('您的浏览器非Chrome，建议您使用最新版本的Chrome浏览，以保证最好的体验效果')}}</span>
             <i class="tips-icon bk-icon icon-close-circle-shape" @click="showBrowserTips = false"></i>
         </div>
         <the-header></the-header>
-        <router-view class="views-layout"></router-view>
+        <router-view class="views-layout" :name="topView" ref="topView"></router-view>
         <the-permission-modal ref="permissionModal"></the-permission-modal>
-        <cmdb-business-selector v-if="businessSelectorVisible" hidden
-            @on-select="resolveBusinessSelectorPromise"
-            @business-empty="resolveBusinessSelectorPromise">
-        </cmdb-business-selector>
+        <the-login-modal ref="loginModal"
+            v-if="loginUrl"
+            :login-url="loginUrl"
+            :success-url="loginSuccessUrl">
+        </the-login-modal>
     </div>
 </template>
 
 <script>
     import theHeader from '@/components/layout/header'
     import thePermissionModal from '@/components/modal/permission'
+    import theLoginModal from '@blueking/paas-login'
     // import { execMainScrollListener, execMainResizeListener } from '@/utils/main-scroller'
     import { addResizeListener, removeResizeListener } from '@/utils/resize-events'
+    import { MENU_INDEX } from '@/dictionary/menu-symbol'
     import { mapGetters } from 'vuex'
     export default {
         name: 'app',
         components: {
             theHeader,
-            thePermissionModal
+            thePermissionModal,
+            theLoginModal
         },
         data () {
             const showBrowserTips = window.navigator.userAgent.toLowerCase().indexOf('chrome') === -1
             return {
-                showBrowserTips
+                showBrowserTips,
+                loginSuccessUrl: window.location.origin + '/static/login_success.html'
                 // execMainScrollListener
             }
         },
         computed: {
-            ...mapGetters(['globalLoading', 'businessSelectorVisible']),
-            ...mapGetters('userCustom', ['usercustom', 'firstEntryKey', 'classifyNavigationKey'])
+            ...mapGetters(['site', 'globalLoading', 'mainFullScreen']),
+            ...mapGetters('userCustom', ['usercustom', 'firstEntryKey', 'classifyNavigationKey']),
+            isIndex () {
+                return this.$route.name === MENU_INDEX
+            },
+            hideBreadcrumbs () {
+                return !(this.$route.meta.layout || {}).breadcrumbs
+            },
+            topView () {
+                const topRoute = this.$route.matched[0]
+                return (topRoute && topRoute.meta.view) || 'default'
+            },
+            loginUrl () {
+                const siteLoginUrl = this.site.login || ''
+                const loginStrIndex = siteLoginUrl.indexOf('login')
+                let loginModalUrl
+                if (loginStrIndex > -1) {
+                    loginModalUrl = siteLoginUrl.substring(0, loginStrIndex) + 'login/plain'
+                }
+                return loginModalUrl
+            }
+        },
+        watch: {
+            site (site) {
+                let language = (this.$i18n.locale || 'cn').toLocaleLowerCase()
+                if (['zh-cn', 'zh_cn', 'zh', 'cn'].includes(language)) {
+                    language = 'cn'
+                }
+                document.title = site.title.i18n[language] || site.title.value
+            }
         },
         mounted () {
-            this.$store.commit('setFeatureTipsParams')
             // addResizeListener(this.$refs.mainScroller, execMainResizeListener)
             addResizeListener(this.$el, this.calculateAppHeight)
             window.permissionModal = this.$refs.permissionModal
+            window.loginModal = this.$refs.loginModal
         },
         beforeDestroy () {
             // removeResizeListener(this.$refs.mainScroller, execMainResizeListener)
             removeResizeListener(this.$el, this.calculateAppHeight)
         },
         methods: {
-            resolveBusinessSelectorPromise (val) {
-                this.$store.commit('resolveBusinessSelectorPromise', !!val)
-            },
             calculateAppHeight () {
                 this.$store.commit('setAppHeight', this.$el.offsetHeight)
             }
@@ -81,5 +115,29 @@
     }
     .views-layout{
         height: calc(100% - 58px);
+    }
+    // 主内容区全屏
+    .main-full-screen {
+        /deep/ {
+            .header-layout,
+            .nav-layout,
+            .breadcrumbs-layout {
+                display: none;
+            }
+        }
+        .views-layout {
+            height: 100%;
+        }
+    }
+    .no-breadcrumb {
+        /deep/ {
+            .main-layout {
+                margin-top: 0
+            }
+            .main-views {
+                height: 100%;
+                margin-top: 0;
+            }
+        }
     }
 </style>

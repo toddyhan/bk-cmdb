@@ -25,7 +25,9 @@ import (
 	"configcenter/src/common"
 	"configcenter/src/common/blog"
 	lang "configcenter/src/common/language"
+	"configcenter/src/common/mapstr"
 	"configcenter/src/common/metadata"
+	params "configcenter/src/common/paraparse"
 	"configcenter/src/common/util"
 	webCommon "configcenter/src/web_server/common"
 	"configcenter/src/web_server/logics"
@@ -67,7 +69,7 @@ func (s *Service) ImportObject(c *gin.Context) {
 		c.String(http.StatusOK, string(msg))
 		return
 	}
-	metaInfo, err := parseMetadata(c.PostForm(metadata.BKMetadata))
+	modelBizID, err := parseModelBizID(c.PostForm(common.BKAppIDField))
 	if err != nil {
 		msg := getReturnStr(common.CCErrCommJSONUnmarshalFailed, defErr.Error(common.CCErrCommJSONUnmarshalFailed).Error(), nil)
 		c.String(http.StatusOK, string(msg))
@@ -78,9 +80,7 @@ func (s *Service) ImportObject(c *gin.Context) {
 	dir := webCommon.ResourcePath + "/import/"
 	_, err = os.Stat(dir)
 	if nil != err {
-		if err != nil {
-			blog.Warnf("os.Stat failed, filename: %s, err: %+v, rid: %s", dir, err, rid)
-		}
+		blog.Warnf("os.Stat failed, filename: %s, err: %+v, rid: %s", dir, err, rid)
 		if err := os.MkdirAll(dir, os.ModeDir|os.ModePerm); err != nil {
 			blog.Errorf("os.MkdirAll failed, filename: %s, err: %+v, rid: %s", dir, err, rid)
 		}
@@ -104,7 +104,7 @@ func (s *Service) ImportObject(c *gin.Context) {
 		return
 	}
 
-	attrItems, errMsg, err := s.Logics.GetImportInsts(ctx, f, objID, header, 3, false, defLang, metaInfo)
+	attrItems, errMsg, err := s.Logics.GetImportInsts(ctx, f, objID, header, 3, false, defLang, modelBizID)
 	if 0 == len(attrItems) {
 		var msg string
 		if nil != err {
@@ -125,10 +125,8 @@ func (s *Service) ImportObject(c *gin.Context) {
 
 	params := map[string]interface{}{
 		objID: map[string]interface{}{
-			"meta": nil,
 			"attr": attrItems,
 		},
-		metadata.BKMetadata: metaInfo,
 	}
 
 	result, err := s.CoreAPI.ApiServer().AddObjectBatch(ctx, c.Request.Header, common.BKDefaultOwnerID, objID, params)
@@ -229,11 +227,7 @@ func setExcelRow(ctx context.Context, row *xlsx.Row, item interface{}) *xlsx.Row
 }
 
 type ExportObjectBody struct {
-	Metadata struct {
-		Label struct {
-			BkBizID string `json:"bk_biz_id"`
-		} `json:"label"`
-	} `json:"metadata"`
+	BizID int64 `json:"bk_biz_id"`
 }
 
 // ExportObject export object
@@ -258,10 +252,9 @@ func (s *Service) ExportObject(c *gin.Context) {
 		c.String(http.StatusBadRequest, msg)
 		return
 	}
-	metaInfo := metadata.NewMetaDataFromBusinessID(requestBody.Metadata.Label.BkBizID)
 
 	// get the all attribute of the object
-	arrItems, err := s.Logics.GetObjectData(ownerID, objID, c.Request.Header, metaInfo)
+	arrItems, err := s.Logics.GetObjectData(ownerID, objID, c.Request.Header, requestBody.BizID)
 	if nil != err {
 		blog.Error("export model, but get object data failed, err: %v, rid: %s", err, rid)
 		msg := getReturnStr(common.CCErrWebGetObjectFail, defErr.Errorf(common.CCErrWebGetObjectFail, err.Error()).Error(), nil)
@@ -320,4 +313,61 @@ func (s *Service) ExportObject(c *gin.Context) {
 		blog.Errorf("os.Remove failed, filename: %s, err: %+v, rid: %s", dirFileName, err, rid)
 	}
 
+}
+func (s *Service) SearchBusiness(c *gin.Context) {
+	rid := util.GetHTTPCCRequestID(c.Request.Header)
+	ctx := util.NewContextFromGinContext(c)
+	webCommon.SetProxyHeader(c)
+	language := webCommon.GetLanguageByHTTPRequest(c)
+	defErr := s.CCErr.CreateDefaultCCErrorIf(language)
+
+	query := new(params.SearchParams)
+	err := c.BindJSON(&query)
+	if err != nil {
+		blog.Errorf("search business, but unmarshal body to json failed, err: %v, rid: %s", err, rid)
+		c.JSON(http.StatusBadRequest, metadata.BaseResp{
+			Result:      false,
+			Code:        common.CCErrCommJSONUnmarshalFailed,
+			ErrMsg:      defErr.Error(common.CCErrCommJSONUnmarshalFailed).Error(),
+			Permissions: nil,
+		})
+		return
+	}
+
+	// change the string query to regexp, only for frontend usage.
+	for k, v := range query.Condition {
+		field, ok := v.(string)
+		if ok {
+			query.Condition[k] = mapstr.MapStr{
+				common.BKDBLIKE: params.SpecialCharChange(field),
+				// insensitive with the character case.
+				common.BKDBOPTIONS: "i",
+			}
+		}
+	}
+	ownerID := c.Request.Header.Get(common.BKHTTPOwnerID)
+	biz, err := s.Engine.CoreAPI.ApiServer().SearchBiz(ctx, ownerID, c.Request.Header, query)
+	if err != nil {
+		blog.Error("search business, but request to api failed, err: %v, rid: %s", err, rid)
+		c.JSON(http.StatusBadRequest, metadata.BaseResp{
+			Result:      false,
+			Code:        common.CCErrCommHTTPDoRequestFailed,
+			ErrMsg:      defErr.Error(common.CCErrCommHTTPDoRequestFailed).Error(),
+			Permissions: nil,
+		})
+		return
+	}
+
+	if !biz.Result {
+		if biz.Code == common.CCNoPermission {
+			c.JSON(http.StatusOK, biz)
+			return
+		} else {
+			c.JSON(http.StatusBadRequest, biz)
+			return
+		}
+	}
+
+	c.JSON(http.StatusOK, biz)
+	return
 }

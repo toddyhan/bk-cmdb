@@ -137,6 +137,7 @@
                     await this.$store.dispatch('userCustom/saveUsercustom', {
                         [key]: selectedList
                     })
+                    this.$store.commit('hosts/setShouldInjectAsset', false)
                     this.$store.commit('hosts/setFilterList', selectedList)
                     this.isShow = false
                 } catch (e) {
@@ -161,7 +162,7 @@
     }
     .property-selector {
         margin: 22px 0 0 0;
-        max-height: 310px;
+        max-height: calc((100vh * 0.3) + 0px);
         @include scrollbar-y;
     }
     .group {

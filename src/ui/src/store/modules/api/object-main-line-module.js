@@ -76,7 +76,7 @@ const actions = {
      * @return {promises} promises 对象
      */
     getInstTopoInstanceNum ({ commit, state, dispatch, rootGetters }, { bizId, config }) {
-        return $http.post(`/find/topoinst_with_statistics/biz/${bizId}`, config)
+        return $http.post(`/find/topoinst_with_statistics/biz/${bizId}`, {}, config)
     },
 
     /**
@@ -105,6 +105,10 @@ const actions = {
      */
     getInternalTopo ({ commit, state, dispatch, rootGetters }, { bizId, config }) {
         return $http.get(`topo/internal/${rootGetters.supplierAccount}/${bizId}/with_statistics`, config)
+    },
+
+    getTopoPath (context, { bizId, params, config }) {
+        return $http.post(`find/topopath/biz/${bizId}`, params, config)
     }
 }
 

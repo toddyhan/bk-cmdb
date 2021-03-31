@@ -13,17 +13,16 @@
 package operation
 
 import (
-	"context"
-
 	"configcenter/src/apimachinery"
 	"configcenter/src/common"
 	"configcenter/src/common/blog"
+	"configcenter/src/common/http/rest"
 	"configcenter/src/common/metadata"
-	"configcenter/src/scene_server/topo_server/core/types"
 )
 
 type AuditOperationInterface interface {
-	Query(params types.ContextParams, query metadata.QueryInput) (interface{}, error)
+	SearchAuditList(kit *rest.Kit, query metadata.QueryCondition) (int64, []metadata.AuditLog, error)
+	SearchAuditDetail(kit *rest.Kit, query metadata.QueryCondition) ([]metadata.AuditLog, error)
 }
 
 // NewAuditOperation create a new inst operation instance
@@ -37,23 +36,27 @@ type audit struct {
 	clientSet apimachinery.ClientSetInterface
 }
 
-func (a *audit) Query(params types.ContextParams, query metadata.QueryInput) (interface{}, error) {
-	rsp, err := a.clientSet.CoreService().Audit().SearchAuditLog(context.Background(), params.Header, query)
+func (a *audit) SearchAuditList(kit *rest.Kit, query metadata.QueryCondition) (int64, []metadata.AuditLog, error) {
+	rsp, err := a.clientSet.CoreService().Audit().SearchAuditLog(kit.Ctx, kit.Header, query)
 	if nil != err {
-		blog.Errorf("[audit] failed request audit controller, error info is %s, rid: %s", err.Error(), params.ReqID)
-		return nil, params.Err.New(common.CCErrCommHTTPDoRequestFailed, err.Error())
+		blog.ErrorJSON("search audit log list failed, error: %s, query: %s, rid: %s", err.Error(), query, kit.Rid)
+		return 0, nil, err
 	}
 
-	if !rsp.Result {
-		blog.Errorf("[audit] failed request audit controller, error info is %s, rid: %s", rsp.ErrMsg, params.ReqID)
-		return nil, params.Err.New(common.CCErrAuditTakeSnapshotFailed, rsp.ErrMsg)
+	return rsp.Data.Count, rsp.Data.Info, nil
+}
+
+func (a *audit) SearchAuditDetail(kit *rest.Kit, query metadata.QueryCondition) ([]metadata.AuditLog, error) {
+	rsp, err := a.clientSet.CoreService().Audit().SearchAuditLog(kit.Ctx, kit.Header, query)
+	if nil != err {
+		blog.Errorf("search audit log detail list failed, error: %s, query: %s, rid: %s", err.Error(), query, kit.Rid)
+		return nil, err
 	}
 
-	for index := range rsp.Data.Info {
-		if desc := params.Lang.Language("auditlog_" + rsp.Data.Info[index].OpDesc); len(desc) > 0 {
-			rsp.Data.Info[index].OpDesc = desc
-		}
+	if len(rsp.Data.Info) == 0 {
+		blog.Errorf("get no audit log detail, rid: %s", kit.Rid)
+		return nil, kit.CCError.CCErrorf(common.CCErrCommParamsIsInvalid, common.BKFieldID)
 	}
 
-	return rsp.Data, nil
+	return rsp.Data.Info, nil
 }

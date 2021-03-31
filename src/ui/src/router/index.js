@@ -5,18 +5,25 @@ import StatusError from './StatusError.js'
 
 import preload from '@/setup/preload'
 import afterload from '@/setup/afterload'
-
-import index from '@/views/index/router.config'
+import { setupValidator } from '@/setup/validate'
 
 import {
-    MENU_INDEX,
+    before as businessBeforeInterceptor
+} from './business-interceptor'
+
+import {
+    MENU_ENTRY,
     MENU_BUSINESS,
     MENU_RESOURCE,
     MENU_MODEL,
-    MENU_ANALYSIS
+    MENU_ANALYSIS,
+    MENU_ADMIN
 } from '@/dictionary/menu-symbol'
 
 import {
+    indexViews,
+    adminViews,
+    hostLandingViews,
     businessViews,
     resourceViews,
     modelViews,
@@ -46,11 +53,6 @@ const redirectRouters = [{
     redirect: {
         name: '404'
     }
-}, {
-    path: '/',
-    redirect: {
-        name: MENU_INDEX
-    }
 }]
 
 const router = new Router({
@@ -58,13 +60,30 @@ const router = new Router({
     routes: [
         ...redirectRouters,
         ...statusRouters,
-        ...index,
+        ...hostLandingViews,
+        {
+            name: MENU_ENTRY,
+            component: dynamicRouterView,
+            children: indexViews,
+            path: '/',
+            redirect: '/index'
+        },
+        {
+            name: MENU_ADMIN,
+            component: dynamicRouterView,
+            children: adminViews,
+            path: '/admin',
+            redirect: '/admin/index'
+        },
         {
             name: MENU_BUSINESS,
-            component: dynamicRouterView,
+            components: {
+                default: dynamicRouterView,
+                error: require('@/views/status/error').default,
+                permission: require('@/views/status/non-exist-business').default
+            },
             children: businessViews,
-            path: '/business',
-            redirect: '/business/host'
+            path: '/business/:bizId?'
         }, {
             name: MENU_MODEL,
             component: dynamicRouterView,
@@ -88,47 +107,38 @@ const router = new Router({
     ]
 })
 
-const getAuth = to => {
-    const auth = to.meta.auth || {}
-    const view = auth.view || {}
-    const operation = auth.operation || {}
-    const routerAuth = Object.values({ ...view, ...operation })
-    if (routerAuth.length) {
-        return router.app.$store.dispatch('auth/getAuth', {
-            type: 'operation',
-            list: routerAuth
-        })
-    }
-    return Promise.resolve([])
+const beforeHooks = new Set()
+
+function runBeforeHooks () {
+    return Promise.all(Array.from(beforeHooks).map(callback => callback()))
 }
 
-const checkViewAuthorized = to => {
-    const auth = to.meta.auth || {}
-    const view = auth.view
-    if (view) {
-        const viewAuth = router.app.$isAuthorized(Object.values(view))
-        if (!viewAuth) {
-            to.meta.view = 'permission'
-        }
-    }
+export const addBeforeHooks = function (hook) {
+    beforeHooks.add(hook)
+}
+
+function cancelRequest (app) {
+    const pendingRequest = app.$http.queue.get()
+    const cancelId = pendingRequest.filter(request => request.cancelWhenRouteChange).map(request => request.requestId)
+    app.$http.cancelRequest(cancelId)
+}
+
+const checkViewAuthorize = async to => {
+    // owener判断已经发现无业务时
+    // if (to.meta.view === 'permission') {
+    //     return false
+    // }
+    // const auth = to.meta.auth || {}
+    // const view = auth.view
+    // if (view) {
+    //     const viewAuthData = typeof view === 'function' ? view(to, router.app) : view
+    //     const viewAuth = await router.app.$store.dispatch('auth/getViewAuth', viewAuthData)
+    //     to.meta.view = viewAuth ? 'default' : 'permission'
+    // }
+    return Promise.resolve()
 }
 
 const setLoading = loading => router.app.$store.commit('setGlobalLoading', loading)
-
-const setAuthScope = (to, from) => {
-    const auth = to.meta.auth || {}
-    if (typeof auth.setAuthScope === 'function') {
-        auth.setAuthScope(to, from, router.app)
-    }
-}
-const checkAuthDynamicMeta = (to, from) => {
-    router.app.$store.commit('auth/clearDynamicMeta')
-    const auth = to.meta.auth || {}
-    const setDynamicMeta = auth.setDynamicMeta
-    if (typeof setDynamicMeta === 'function') {
-        setDynamicMeta(to, from, router.app)
-    }
-}
 
 const checkAvailable = (to, from) => {
     if (typeof to.meta.checkAvailable === 'function') {
@@ -139,25 +149,6 @@ const checkAvailable = (to, from) => {
     return true
 }
 
-const setAdminView = to => {
-    const isAdminView = to.matched.length && to.matched[0].name !== MENU_BUSINESS
-    router.app.$store.commit('setAdminView', isAdminView)
-}
-
-// 进入业务二级导航时需要先加载业务
-// 在App.vue中添加一个隐藏的业务选择器，业务选择器完成设置后resolve对应的promise
-const checkOwner = async to => {
-    const matched = to.matched
-    if (matched.length && matched[0].name === MENU_BUSINESS) {
-        router.app.$store.commit('setBusinessSelectorVisible', true)
-        const result = await router.app.$store.state.businessSelectorPromise
-        to.meta.view = result ? 'default' : 'permission'
-    } else {
-        to.meta.view = 'default'
-        router.app.$store.commit('setBusinessSelectorVisible', false)
-    }
-}
-
 const setupStatus = {
     preload: true,
     afterload: true
@@ -166,49 +157,62 @@ const setupStatus = {
 router.beforeEach((to, from, next) => {
     Vue.nextTick(async () => {
         try {
-            setLoading(true)
-            if (setupStatus.preload) {
-                await preload(router.app)
+            cancelRequest(router.app)
+            to.name !== from.name && router.app.$store.commit('setTitle', '')
+            if (to.meta.view !== 'permission') {
+                Vue.set(to.meta, 'view', 'default')
             }
-            await checkOwner(to)
-            setAdminView(to)
-            setAuthScope(to, from)
-            checkAuthDynamicMeta(to, from)
+            if (to.name === from.name) {
+                return next()
+            }
+            if (setupStatus.preload) {
+                setLoading(true)
+                setupStatus.preload = false
+                await preload(router.app)
+                setupValidator(router.app)
+            }
+            await runBeforeHooks()
+            const shouldContinue = await businessBeforeInterceptor(router.app, to, from, next)
+            if (!shouldContinue) {
+                return false
+            }
 
             const isAvailable = checkAvailable(to, from)
             if (!isAvailable) {
                 throw new StatusError({ name: '404' })
             }
-            await getAuth(to)
-            checkViewAuthorized(to)
+            await checkViewAuthorize(to)
             return next()
         } catch (e) {
+            console.error(e)
+            setupStatus.preload = true
             if (e.__CANCEL__) {
                 next()
             } else if (e instanceof StatusError) {
                 next({ name: e.name, query: e.query })
-            } else {
+            } else if (e.status !== 401) {
                 console.error(e)
-                next({ name: 'error' })
+                // 保留路由，将视图切换为error
+                Vue.set(to.meta, 'view', 'error')
+                next()
+            } else {
+                next()
             }
         } finally {
             setLoading(false)
-            setupStatus.preload = false
         }
     })
 })
 
-router.afterEach((to, from) => {
+router.afterEach(async (to, from) => {
     try {
         if (setupStatus.afterload) {
-            afterload(router.app, to, from)
+            setupStatus.afterload = false
+            await afterload(router.app, to, from)
         }
-        router.app.$store.commit('setTitle', '')
-        router.app.$store.commit('setBreadcrumbs', [])
     } catch (e) {
+        setupStatus.afterload = true
         console.error(e)
-    } finally {
-        setLoading(false)
     }
 })
 

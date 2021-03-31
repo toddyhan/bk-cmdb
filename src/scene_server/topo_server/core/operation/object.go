@@ -16,16 +16,17 @@ import (
 	"context"
 	"fmt"
 
+	"configcenter/src/ac/extensions"
 	"configcenter/src/apimachinery"
-	"configcenter/src/auth/extensions"
 	"configcenter/src/common"
+	"configcenter/src/common/auditlog"
 	"configcenter/src/common/blog"
 	"configcenter/src/common/condition"
+	"configcenter/src/common/http/rest"
 	"configcenter/src/common/mapstr"
 	"configcenter/src/common/metadata"
 	"configcenter/src/scene_server/topo_server/core/inst"
 	"configcenter/src/scene_server/topo_server/core/model"
-	"configcenter/src/scene_server/topo_server/core/types"
 )
 
 type rowInfo struct {
@@ -37,20 +38,19 @@ type rowInfo struct {
 
 // ObjectOperationInterface object operation methods
 type ObjectOperationInterface interface {
-	CreateObjectBatch(params types.ContextParams, data mapstr.MapStr) (mapstr.MapStr, error)
-	FindObjectBatch(params types.ContextParams, data mapstr.MapStr) (mapstr.MapStr, error)
-	CreateObject(params types.ContextParams, isMainline bool, data mapstr.MapStr) (model.Object, error)
-	CanDelete(params types.ContextParams, targetObj model.Object) error
-	DeleteObject(params types.ContextParams, id int64, cond condition.Condition, needCheckInst bool) error
-	FindObject(params types.ContextParams, cond condition.Condition) ([]model.Object, error)
-	FindObjectTopo(params types.ContextParams, cond condition.Condition) ([]metadata.ObjectTopo, error)
-	// Deprecated: not allowed to use anymore.
-	FindSingleObject(params types.ContextParams, objectID string) (model.Object, error)
-	FindObjectWithID(params types.ContextParams, object string, objectID int64) (model.Object, error)
-	UpdateObject(params types.ContextParams, data mapstr.MapStr, id int64) error
+	CreateObjectBatch(kit *rest.Kit, data map[string]ImportObjectData) (mapstr.MapStr, error)
+	FindObjectBatch(kit *rest.Kit, objIDs []string) (mapstr.MapStr, error)
+	CreateObject(kit *rest.Kit, isMainline bool, data mapstr.MapStr) (model.Object, error)
+	CanDelete(kit *rest.Kit, targetObj model.Object) error
+	DeleteObject(kit *rest.Kit, id int64, needCheckInst bool) error
+	FindObject(kit *rest.Kit, cond condition.Condition) ([]model.Object, error)
+	FindObjectTopo(kit *rest.Kit, cond condition.Condition) ([]metadata.ObjectTopo, error)
+	FindSingleObject(kit *rest.Kit, objectID string) (model.Object, error)
+	FindObjectWithID(kit *rest.Kit, object string, objectID int64) (model.Object, error)
+	UpdateObject(kit *rest.Kit, data mapstr.MapStr, id int64) error
 
 	SetProxy(modelFactory model.Factory, instFactory inst.Factory, cls ClassificationOperationInterface, asst AssociationOperationInterface, inst InstOperationInterface, attr AttributeOperationInterface, grp GroupOperationInterface, unique UniqueOperationInterface)
-	IsValidObject(params types.ContextParams, objID string) error
+	IsValidObject(kit *rest.Kit, objID string) error
 }
 
 // NewObjectOperation create a new object operation instance
@@ -85,20 +85,19 @@ func (o *object) SetProxy(modelFactory model.Factory, instFactory inst.Factory, 
 }
 
 // IsValidObject check whether objID is a real model's bk_obj_id field in backend
-func (o *object) IsValidObject(params types.ContextParams, objID string) error {
+func (o *object) IsValidObject(kit *rest.Kit, objID string) error {
 
 	checkObjCond := condition.CreateCondition()
 	checkObjCond.Field(metadata.AttributeFieldObjectID).Eq(objID)
-	checkObjCond.Field(metadata.AttributeFieldSupplierAccount).Eq(params.SupplierAccount)
 
-	objItems, err := o.FindObject(params, checkObjCond)
+	objItems, err := o.FindObject(kit, checkObjCond)
 	if nil != err {
-		blog.Errorf("failed to check the object repeated, err: %s, rid: %s", err.Error(), params.ReqID)
-		return params.Err.New(common.CCErrCommParamsIsInvalid, err.Error())
+		blog.Errorf("failed to check the object repeated, err: %s, rid: %s", err.Error(), kit.Rid)
+		return kit.CCError.New(common.CCErrCommParamsIsInvalid, err.Error())
 	}
 
 	if 0 == len(objItems) {
-		return params.Err.New(common.CCErrCommParamsIsInvalid, fmt.Sprintf("the object id  '%s' is invalid", objID))
+		return kit.CCError.New(common.CCErrCommParamsIsInvalid, fmt.Sprintf("the object id  '%s' is invalid", objID))
 	}
 
 	return nil
@@ -107,19 +106,13 @@ func (o *object) IsValidObject(params types.ContextParams, objID string) error {
 // CreateObjectBatch manipulate model in cc_ObjDes
 // this method does'nt act as it's name, it create or update model's attributes indeed.
 // it only operate on model already exist, that it to say no new model will be created.
-func (o *object) CreateObjectBatch(params types.ContextParams, data mapstr.MapStr) (mapstr.MapStr, error) {
-
-	inputDataMap := map[string]ImportObjectData{}
-	if err := data.MarshalJSONInto(&inputDataMap); nil != err {
-		return nil, err
-	}
-
+func (o *object) CreateObjectBatch(kit *rest.Kit, inputDataMap map[string]ImportObjectData) (mapstr.MapStr, error) {
 	result := mapstr.New()
 	hasError := false
 	for objID, inputData := range inputDataMap {
 		subResult := mapstr.New()
-		if err := o.IsValidObject(params, objID); nil != err {
-			blog.Errorf("create model patch, but not a valid model id, model id: %s, rid: %s", objID, params.ReqID)
+		if err := o.IsValidObject(kit, objID); nil != err {
+			blog.Errorf("create model patch, but not a valid model id, model id: %s, rid: %s", objID, kit.Rid)
 			subResult["error"] = fmt.Sprintf("the model(%s) is invalid", objID)
 			result[objID] = subResult
 			hasError = true
@@ -141,20 +134,13 @@ func (o *object) CreateObjectBatch(params types.ContextParams, data mapstr.MapSt
 			metaAttr := metadata.Attribute{}
 			targetAttr, err := metaAttr.Parse(attr)
 			if nil != err {
-				blog.Errorf("create object batch, but got invalid object attribute, object id: %s, rid: %s", objID, params.ReqID)
+				blog.Errorf("create object batch, but got invalid object attribute, object id: %s, rid: %s", objID, kit.Rid)
 				itemErr = append(itemErr, rowInfo{Row: idx, Info: err.Error()})
 				hasError = true
 				continue
 			}
-			targetAttr.OwnerID = params.SupplierAccount
+			targetAttr.OwnerID = kit.SupplierAccount
 			targetAttr.ObjectID = objID
-			if params.MetaData != nil {
-				targetAttr.Metadata = *params.MetaData
-			}
-
-			if targetAttr.PropertyType == common.FieldTypeMultiAsst || targetAttr.PropertyType == common.FieldTypeSingleAsst {
-				continue
-			}
 
 			if targetAttr.PropertyID == common.BKChildStr || targetAttr.PropertyID == common.BKInstParentStr {
 				continue
@@ -168,9 +154,9 @@ func (o *object) CreateObjectBatch(params types.ContextParams, data mapstr.MapSt
 			grpCond := condition.CreateCondition()
 			grpCond.Field(metadata.GroupFieldObjectID).Eq(objID)
 			grpCond.Field(metadata.GroupFieldGroupName).Eq(targetAttr.PropertyGroupName)
-			grps, err := o.grp.FindObjectGroup(params, grpCond)
+			grps, err := o.grp.FindObjectGroup(kit, grpCond, targetAttr.BizID)
 			if nil != err {
-				blog.Errorf("create object patch, but find object group failed, object id: %s, group: %s, rid: %s", objID, targetAttr.PropertyGroupName, params.ReqID)
+				blog.Errorf("create object patch, but find object group failed, object id: %s, group: %s, rid: %s", objID, targetAttr.PropertyGroupName, kit.Rid)
 				itemErr = append(itemErr, rowInfo{Row: idx, Info: err.Error(), PropertyID: targetAttr.PropertyID})
 				hasError = true
 				continue
@@ -179,16 +165,13 @@ func (o *object) CreateObjectBatch(params types.ContextParams, data mapstr.MapSt
 			if 0 != len(grps) {
 				targetAttr.PropertyGroup = grps[0].Group().GroupID // should be only one group
 			} else {
-
-				newGrp := o.modelFactory.CreateGroup(params)
+				newGrp := o.modelFactory.CreateGroup(kit, targetAttr.BizID)
 				g := metadata.Group{
 					GroupName: targetAttr.PropertyGroupName,
 					GroupID:   model.NewGroupID(false),
 					ObjectID:  objID,
-					OwnerID:   params.SupplierAccount,
-				}
-				if params.MetaData != nil {
-					g.Metadata = *params.MetaData
+					OwnerID:   kit.SupplierAccount,
+					BizID:     targetAttr.BizID,
 				}
 				newGrp.SetGroup(g)
 				err := newGrp.Save(nil)
@@ -209,10 +192,10 @@ func (o *object) CreateObjectBatch(params types.ContextParams, data mapstr.MapSt
 				continue
 			}
 			attrCond := condition.CreateCondition()
-			attrCond.Field(metadata.AttributeFieldSupplierAccount).Eq(params.SupplierAccount)
 			attrCond.Field(metadata.AttributeFieldObjectID).Eq(objID)
 			attrCond.Field(metadata.AttributeFieldPropertyID).Eq(attrID)
-			attrs, err := o.attr.FindObjectAttribute(params, attrCond)
+
+			attrs, err := o.attr.FindObjectAttribute(kit, attrCond, targetAttr.BizID)
 			if nil != err {
 				addErr = append(addErr, rowInfo{Row: idx, Info: err.Error(), PropertyID: targetAttr.PropertyID})
 				hasError = true
@@ -221,7 +204,7 @@ func (o *object) CreateObjectBatch(params types.ContextParams, data mapstr.MapSt
 
 			if 0 == len(attrs) {
 
-				newAttr := o.modelFactory.CreateAttribute(params)
+				newAttr := o.modelFactory.CreateAttribute(kit)
 				if err = newAttr.Save(targetAttr.ToMapStr()); nil != err {
 					addErr = append(addErr, rowInfo{Row: idx, Info: err.Error(), PropertyID: targetAttr.PropertyID})
 					hasError = true
@@ -243,17 +226,17 @@ func (o *object) CreateObjectBatch(params types.ContextParams, data mapstr.MapSt
 		}
 
 		// 将需要返回的信息更新到result中。 这个函数会修改result参数的值
-		o.setCreateObjectBatchObjResult(params, objID, result, itemErr, addErr, setErr, succInfo)
+		o.setCreateObjectBatchObjResult(kit, objID, result, itemErr, addErr, setErr, succInfo)
 	}
 
 	if hasError {
-		return result, params.Err.Error(common.CCErrCommNotAllSuccess)
+		return result, kit.CCError.Error(common.CCErrCommNotAllSuccess)
 	}
 	return result, nil
 }
 
 // setCreateObjectBatchObjResult
-func (o *object) setCreateObjectBatchObjResult(params types.ContextParams, objID string, result mapstr.MapStr, itemErr, addErr, setErr, succInfo []rowInfo) {
+func (o *object) setCreateObjectBatchObjResult(kit *rest.Kit, objID string, result mapstr.MapStr, itemErr, addErr, setErr, succInfo []rowInfo) {
 	subResult := mapstr.New()
 	if len(itemErr) > 0 {
 		subResult["errors"] = itemErr
@@ -272,17 +255,11 @@ func (o *object) setCreateObjectBatchObjResult(params types.ContextParams, objID
 	}
 }
 
-func (o *object) FindObjectBatch(params types.ContextParams, data mapstr.MapStr) (mapstr.MapStr, error) {
-
-	cond := &ExportObjectCondition{}
-	if err := data.MarshalJSONInto(cond); nil != err {
-		return nil, err
-	}
-
+func (o *object) FindObjectBatch(kit *rest.Kit, objIDs []string) (mapstr.MapStr, error) {
 	result := mapstr.New()
 
-	for _, objID := range cond.ObjIDS {
-		obj, err := o.FindSingleObject(params, objID)
+	for _, objID := range objIDs {
+		obj, err := o.FindSingleObject(kit, objID)
 		if nil != err {
 			return nil, err
 		}
@@ -290,6 +267,22 @@ func (o *object) FindObjectBatch(params types.ContextParams, data mapstr.MapStr)
 		attrs, err := obj.GetNonInnerAttributes()
 		if nil != err {
 			return nil, err
+		}
+
+		for _, attr := range attrs {
+			attribute := attr.Attribute()
+			grpCond := condition.CreateCondition()
+			grpCond.Field(metadata.GroupFieldGroupID).Eq(attribute.PropertyGroup)
+			grpCond.Field(metadata.GroupFieldObjectID).Eq(attribute.ObjectID)
+			grps, err := o.grp.FindObjectGroup(kit, grpCond, attribute.BizID)
+			if nil != err {
+				return nil, err
+			}
+
+			for _, grp := range grps {
+				// should be only one
+				attribute.PropertyGroupName = grp.Group().GroupName
+			}
 		}
 
 		result.Set(objID, mapstr.MapStr{
@@ -300,29 +293,25 @@ func (o *object) FindObjectBatch(params types.ContextParams, data mapstr.MapStr)
 	return result, nil
 }
 
-// Deprecated:
-// It's not allowed to find a object with only bk_obj_id field, because it
-// may find the wrong object, as the public object id is unique, but the private business
-// object id can be same across the different business.
-func (o *object) FindSingleObject(params types.ContextParams, objectID string) (model.Object, error) {
+func (o *object) FindSingleObject(kit *rest.Kit, objectID string) (model.Object, error) {
 
 	cond := condition.CreateCondition()
 	cond.Field(common.BKObjIDField).Eq(objectID)
 
-	objs, err := o.FindObject(params, cond)
+	objs, err := o.FindObject(kit, cond)
 	if nil != err {
-		blog.Errorf("get model failed, failed to get model by supplier account(%s) objects(%s), err: %s, rid: %s", params.SupplierAccount, objectID, err.Error(), params.ReqID)
+		blog.Errorf("get model failed, failed to get model by supplier account(%s) objects(%s), err: %s, rid: %s", kit.SupplierAccount, objectID, err.Error(), kit.Rid)
 		return nil, err
 	}
 
 	if len(objs) == 0 {
-		blog.Errorf("get model failed, get model by supplier account(%s) objects(%s) not found, result: %+v, rid: %s", params.SupplierAccount, objectID, objs, params.ReqID)
-		return nil, params.Err.New(common.CCErrTopoObjectSelectFailed, params.Err.Error(common.CCErrCommNotFound).Error())
+		blog.Errorf("get model failed, get model by supplier account(%s) objects(%s) not found, result: %+v, rid: %s", kit.SupplierAccount, objectID, objs, kit.Rid)
+		return nil, kit.CCError.New(common.CCErrTopoObjectSelectFailed, kit.CCError.Error(common.CCErrCommNotFound).Error())
 	}
 
 	if len(objs) > 1 {
-		blog.Errorf("get model failed, get model by supplier account(%s) objects(%s) get multiple, result: %+v, rid: %s", params.SupplierAccount, objectID, objs, params.ReqID)
-		return nil, params.Err.New(common.CCErrTopoObjectSelectFailed, params.Err.Error(common.CCErrCommGetMultipleObject).Error())
+		blog.Errorf("get model failed, get model by supplier account(%s) objects(%s) get multiple, result: %+v, rid: %s", kit.SupplierAccount, objectID, objs, kit.Rid)
+		return nil, kit.CCError.New(common.CCErrTopoObjectSelectFailed, kit.CCError.Error(common.CCErrCommGetMultipleObject).Error())
 	}
 
 	objects := make([]metadata.Object, 0)
@@ -333,28 +322,27 @@ func (o *object) FindSingleObject(params types.ContextParams, objectID string) (
 	for _, item := range objs {
 		return item, nil
 	}
-	return nil, params.Err.New(common.CCErrTopoObjectSelectFailed, params.Err.Errorf(common.CCErrCommParamsIsInvalid, objectID).Error())
+	return nil, kit.CCError.New(common.CCErrTopoObjectSelectFailed, kit.CCError.Errorf(common.CCErrCommParamsIsInvalid, objectID).Error())
 }
 
-func (o *object) FindObjectWithID(params types.ContextParams, object string, objectID int64) (model.Object, error) {
-
+func (o *object) FindObjectWithID(kit *rest.Kit, object string, objectID int64) (model.Object, error) {
 	cond := condition.CreateCondition()
 	cond.Field("id").Eq(objectID)
 
-	objs, err := o.FindObject(params, cond)
+	objs, err := o.FindObject(kit, cond)
 	if nil != err {
-		blog.Errorf("get model failed, failed to get model by supplier account(%s) objects(%s), err: %s, rid: %s", params.SupplierAccount, objectID, err.Error(), params.ReqID)
+		blog.Errorf("get model failed, failed to get model by supplier account(%s) objects(%s), err: %s, rid: %s", kit.SupplierAccount, objectID, err.Error(), kit.Rid)
 		return nil, err
 	}
 
 	if len(objs) == 0 {
-		blog.Errorf("get model failed, get model by supplier account(%s) objects(%d) not found, result: %+v, rid: %s", params.SupplierAccount, objectID, objs, params.ReqID)
-		return nil, params.Err.New(common.CCErrTopoObjectSelectFailed, params.Err.Error(common.CCErrCommNotFound).Error())
+		blog.Errorf("get model failed, get model by supplier account(%s) objects(%d) not found, result: %+v, rid: %s", kit.SupplierAccount, objectID, objs, kit.Rid)
+		return nil, kit.CCError.New(common.CCErrTopoObjectSelectFailed, kit.CCError.Error(common.CCErrCommNotFound).Error())
 	}
 
 	if len(objs) > 1 {
-		blog.Errorf("get model failed, get model by supplier account(%s) objects(%s) get multiple, result: %+v, rid: %s", params.SupplierAccount, objectID, objs, params.ReqID)
-		return nil, params.Err.New(common.CCErrTopoObjectSelectFailed, params.Err.Error(common.CCErrCommGetMultipleObject).Error())
+		blog.Errorf("get model failed, get model by supplier account(%s) objects(%s) get multiple, result: %+v, rid: %s", kit.SupplierAccount, objectID, objs, kit.Rid)
+		return nil, kit.CCError.New(common.CCErrTopoObjectSelectFailed, kit.CCError.Error(common.CCErrCommGetMultipleObject).Error())
 	}
 
 	objects := make([]metadata.Object, 0)
@@ -365,45 +353,45 @@ func (o *object) FindObjectWithID(params types.ContextParams, object string, obj
 	for _, item := range objs {
 		return item, nil
 	}
-	return nil, params.Err.New(common.CCErrTopoObjectSelectFailed, params.Err.Errorf(common.CCErrCommParamsIsInvalid, objectID).Error())
+	return nil, kit.CCError.New(common.CCErrTopoObjectSelectFailed, kit.CCError.Errorf(common.CCErrCommParamsIsInvalid, objectID).Error())
 }
 
-func (o *object) CreateObject(params types.ContextParams, isMainline bool, data mapstr.MapStr) (model.Object, error) {
-	obj := o.modelFactory.CreateObject(params)
+func (o *object) CreateObject(kit *rest.Kit, isMainline bool, data mapstr.MapStr) (model.Object, error) {
+	obj := o.modelFactory.CreateObject(kit)
 	err := obj.Parse(data)
 	if nil != err {
-		blog.Errorf("[operation-obj] failed to parse the data(%#v), err: %s, rid: %s", data, err.Error(), params.ReqID)
+		blog.Errorf("[operation-obj] failed to parse the data(%#v), err: %s, rid: %s", data, err.Error(), kit.Rid)
 		return nil, err
 	}
 
 	// check the classification
 	_, err = obj.GetClassification()
 	if nil != err {
-		blog.Errorf("[operation-obj] failed to create the object, err: %s, rid: %s", err.Error(), params.ReqID)
-		return nil, params.Err.New(common.CCErrTopoObjectCreateFailed, err.Error())
+		blog.Errorf("[operation-obj] failed to create the object, err: %s, rid: %s", err.Error(), kit.Rid)
+		return nil, kit.CCError.New(common.CCErrTopoObjectCreateFailed, err.Error())
 	}
 
 	// check repeated
 	exists, err := obj.IsExists()
 	if nil != err {
-		blog.Errorf("[operation-obj] failed to create the object(%#v), err: %s, rid: %s", data, err.Error(), params.ReqID)
-		return nil, params.Err.New(common.CCErrTopoObjectCreateFailed, err.Error())
+		blog.Errorf("[operation-obj] failed to create the object(%#v), err: %s, rid: %s", data, err.Error(), kit.Rid)
+		return nil, kit.CCError.New(common.CCErrTopoObjectCreateFailed, err.Error())
 	}
 
 	if exists {
-		blog.Errorf("[operation-obj] the object(%#v) is repeated, rid: %s", data, params.ReqID)
-		return nil, params.Err.Errorf(common.CCErrCommDuplicateItem, obj.Object().ObjectName)
+		blog.Errorf("[operation-obj] the object(%#v) is repeated, rid: %s", data, kit.Rid)
+		return nil, kit.CCError.Errorf(common.CCErrCommDuplicateItem, obj.Object().ObjectID+"/"+obj.Object().ObjectName)
 	}
 
 	err = obj.Create()
 	if nil != err {
-		blog.Errorf("[operation-obj] failed to save the data(%#v), err: %s, rid: %s", data, err.Error(), params.ReqID)
+		blog.Errorf("[operation-obj] failed to save the data(%#v), err: %s, rid: %s", data, err.Error(), kit.Rid)
 		return nil, err
 	}
 
 	object := obj.Object()
 	// create the default group
-	grp := obj.CreateGroup()
+	grp := obj.CreateGroup(0)
 	groupData := metadata.Group{
 		IsDefault:  true,
 		GroupIndex: -1,
@@ -412,14 +400,11 @@ func (o *object) CreateObject(params types.ContextParams, isMainline bool, data 
 		ObjectID:   object.ObjectID,
 		OwnerID:    object.OwnerID,
 	}
-	if nil != params.MetaData {
-		groupData.Metadata = *params.MetaData
-	}
-	grp.SetGroup(groupData)
 
+	grp.SetGroup(groupData)
 	if err = grp.Save(nil); nil != err {
-		blog.Errorf("[operation-obj] failed to create the default group, err: %s, rid: %s", err.Error(), params.ReqID)
-		return nil, params.Err.Error(common.CCErrTopoObjectGroupCreateFailed)
+		blog.Errorf("[operation-obj] failed to create the default group, err: %s, rid: %s", err.Error(), kit.Rid)
+		return nil, kit.CCError.Error(common.CCErrTopoObjectGroupCreateFailed)
 	}
 
 	keys := make([]metadata.UniqueKey, 0)
@@ -440,11 +425,8 @@ func (o *object) CreateObject(params types.ContextParams, isMainline bool, data 
 		PropertyID:        obj.GetInstNameFieldName(),
 		PropertyName:      obj.GetDefaultInstPropertyName(),
 	})
-	if nil != params.MetaData {
-		attr.Attribute().Metadata = *params.MetaData
-	}
 	if err = attr.Create(); nil != err {
-		blog.Errorf("[operation-obj] failed to create the default inst name field, error info is %s, rid: %s", err.Error(), params.ReqID)
+		blog.Errorf("[operation-obj] failed to create the default inst name field, error info is %s, rid: %s", err.Error(), kit.Rid)
 		return nil, err
 	}
 
@@ -469,8 +451,8 @@ func (o *object) CreateObject(params types.ContextParams, isMainline bool, data 
 		})
 
 		if err = pAttr.Create(); nil != err {
-			blog.Errorf("[operation-obj] failed to create the default inst name field, err: %s, rid: %s", err.Error(), params.ReqID)
-			return nil, params.Err.Error(common.CCErrTopoObjectAttributeCreateFailed)
+			blog.Errorf("[operation-obj] failed to create the default inst name field, err: %s, rid: %s", err.Error(), kit.Rid)
+			return nil, kit.CCError.Error(common.CCErrTopoObjectAttributeCreateFailed)
 		}
 		keys = append(keys, metadata.UniqueKey{Kind: metadata.UniqueKeyKindProperty, ID: uint64(pAttr.Attribute().ID)})
 	}
@@ -480,21 +462,38 @@ func (o *object) CreateObject(params types.ContextParams, isMainline bool, data 
 	uni.SetIsPre(false)
 	uni.SetMustCheck(true)
 	if err = uni.Save(nil); nil != err {
-		blog.Errorf("[operation-obj] failed to create the default inst name field, err: %s, rid: %s", err.Error(), params.ReqID)
+		blog.Errorf("[operation-obj] failed to create the default inst name field, err: %s, rid: %s", err.Error(), kit.Rid)
 		return nil, err
 	}
 
-	// auth: register model to iam
-	if err := o.authManager.RegisterObject(params.Context, params.Header, object); err != nil {
-		return nil, params.Err.New(common.CCErrCommRegistResourceToIAMFailed, err.Error())
+	// generate audit log of object attribute group.
+	audit := auditlog.NewObjectAuditLog(o.clientSet.CoreService())
+	generateAuditParameter := auditlog.NewGenerateAuditCommonParameter(kit, metadata.AuditCreate)
+	auditLog, err := audit.GenerateAuditLog(generateAuditParameter, obj.Object().ID, nil)
+	if err != nil {
+		blog.Errorf("create object %s success, but generate audit log failed, err: %v, rid: %s",
+			object.ObjectName, err, kit.Rid)
+		return nil, err
+	}
+
+	// save audit log.
+	if err := audit.SaveAuditLog(kit, *auditLog); err != nil {
+		blog.Errorf("create object %s success, but save audit log failed, err: %v, rid: %s",
+			object.ObjectName, err, kit.Rid)
+		return nil, err
 	}
 
 	return obj, nil
 }
 
-func (o *object) CanDelete(params types.ContextParams, targetObj model.Object) error {
+// CanDelete return nil only when:
+// 1. not inner model
+// 2. model has no instances
+// 3. model has no association with other model
+func (o *object) CanDelete(kit *rest.Kit, targetObj model.Object) error {
+	// step 1. ensure not inner model
 	if common.IsInnerModel(targetObj.GetObjectID()) {
-		return params.Err.Error(common.CCErrTopoForbiddenToDeleteModelFailed)
+		return kit.CCError.Error(common.CCErrTopoForbiddenToDeleteModelFailed)
 	}
 
 	tObject := targetObj.Object()
@@ -503,18 +502,20 @@ func (o *object) CanDelete(params types.ContextParams, targetObj model.Object) e
 		cond.Field(common.BKObjIDField).Eq(tObject.ObjectID)
 	}
 
+	// step 2. ensure model has no instances
 	query := &metadata.QueryInput{}
 	query.Condition = cond.ToMapStr()
-	findInstResponse, err := o.inst.FindOriginInst(params, targetObj, query)
+	findInstResponse, err := o.inst.FindOriginInst(kit, targetObj.GetObjectID(), query)
 	if nil != err {
-		blog.Errorf("[operation-obj] failed to check if it (%s) has some insts, err: %s, rid: %s", tObject.ObjectID, err.Error(), params.ReqID)
+		blog.Errorf("[operation-obj] failed to check if it (%s) has some insts, err: %s, rid: %s", tObject.ObjectID, err.Error(), kit.Rid)
 		return err
 	}
 	if 0 != findInstResponse.Count {
-		blog.Errorf("the object [%s] has been instantiated and cannot be deleted, rid: %s", tObject.ObjectID, params.ReqID)
-		return params.Err.Errorf(common.CCErrTopoObjectHasSomeInstsForbiddenToDelete, tObject.ObjectID)
+		blog.Errorf("the object [%s] has been instantiated and cannot be deleted, rid: %s", tObject.ObjectID, kit.Rid)
+		return kit.CCError.Errorf(common.CCErrTopoObjectHasSomeInstsForbiddenToDelete, tObject.ObjectID)
 	}
 
+	// step 3. ensure model has no association with other model
 	or := make([]interface{}, 0)
 	or = append(or, mapstr.MapStr{common.BKObjIDField: tObject.ObjectID})
 	or = append(or, mapstr.MapStr{common.AssociatedObjectIDField: tObject.ObjectID})
@@ -522,74 +523,89 @@ func (o *object) CanDelete(params types.ContextParams, targetObj model.Object) e
 	cond = condition.CreateCondition()
 	cond.NewOR().Array(or)
 
-	assocResult, err := o.asst.SearchObject(params, &metadata.SearchAssociationObjectRequest{Condition: cond.ToMapStr()})
+	assocResult, err := o.asst.SearchObject(kit, &metadata.SearchAssociationObjectRequest{Condition: cond.ToMapStr()})
 	if err != nil {
-		blog.Errorf("check object[%s] can be deleted, but get object associate info failed, err: %v, rid: %s", tObject.ObjectID, err, params.ReqID)
-		return params.Err.Error(common.CCErrCommHTTPDoRequestFailed)
+		blog.Errorf("check object[%s] can be deleted, but get object associate info failed, err: %v, rid: %s", tObject.ObjectID, err, kit.Rid)
+		return kit.CCError.Error(common.CCErrCommHTTPDoRequestFailed)
 	}
 
 	if !assocResult.Result {
-		blog.Errorf("check if object[%s] can be deleted, but get object associate info failed, err: %v, rid: %s", tObject.ObjectID, err, params.ReqID)
-		return params.Err.Error(assocResult.Code)
+		blog.Errorf("check if object[%s] can be deleted, but get object associate info failed, err: %v, rid: %s", tObject.ObjectID, err, kit.Rid)
+		return kit.CCError.Error(assocResult.Code)
 	}
 
 	if len(assocResult.Data) != 0 {
-		blog.Errorf("check if object[%s] can be deleted, but object has already associate to another one., rid: %s", tObject.ObjectID, params.ReqID)
-		return params.Err.Error(common.CCErrorTopoObjectHasAlreadyAssociated)
+		blog.Errorf("check if object[%s] can be deleted, but object has already associate to another one., rid: %s", tObject.ObjectID, kit.Rid)
+		return kit.CCError.Error(common.CCErrorTopoObjectHasAlreadyAssociated)
 	}
 
 	return nil
 }
 
-func (o *object) DeleteObject(params types.ContextParams, id int64, cond condition.Condition, needCheckInst bool) error {
-
-	if 0 < id {
-		cond = condition.CreateCondition()
-		cond.Field(metadata.ModelFieldID).Eq(id)
+// DeleteObject delete model by id
+func (o *object) DeleteObject(kit *rest.Kit, id int64, needCheckInst bool) error {
+	if id <= 0 {
+		return kit.CCError.CCErrorf(common.CCErrCommParamsInvalid, common.BKFieldID)
 	}
-	objs, err := o.FindObject(params, cond)
+
+	// get model by id
+	cond := condition.CreateCondition()
+	cond.Field(metadata.ModelFieldID).Eq(id)
+	objs, err := o.FindObject(kit, cond)
 	if nil != err {
-		blog.Errorf("[operation-obj] failed to find objects, the condition is (%v) err: %s, rid: %s", cond, err.Error(), params.ReqID)
+		blog.Errorf("[operation-obj] failed to find objects, the condition is (%v) err: %s, rid: %s", cond, err.Error(), kit.Rid)
+		return err
+	}
+	// shouldn't return 404 error here, legacy implements just ignore not found error
+	if len(objs) == 0 {
+		blog.V(3).Infof("[operation-obj] object not found, condition: %v, err: %s, rid: %s", cond, err.Error(), kit.Rid)
+		return nil
+	}
+	if len(objs) > 1 {
+		return kit.CCError.CCError(common.CCErrCommGetMultipleObject)
+	}
+	obj := objs[0]
+	object := obj.Object()
+
+	// check whether it can be deleted
+	if needCheckInst {
+		if err := o.CanDelete(kit, obj); nil != err {
+			return err
+		}
+	}
+
+	// generate audit log of object.
+	audit := auditlog.NewObjectAuditLog(o.clientSet.CoreService())
+	generateAuditParameter := auditlog.NewGenerateAuditCommonParameter(kit, metadata.AuditDelete)
+	auditLog, err := audit.GenerateAuditLog(generateAuditParameter, obj.Object().ID, nil)
+	if err != nil {
+		blog.Errorf("generate audit log failed before delete object, objName: %s, err: %v, rid: %s",
+			object.ObjectName, err, kit.Rid)
 		return err
 	}
 
-	// auth: check authorization
-	objects := make([]metadata.Object, 0)
-	for _, obj := range objs {
-		objects = append(objects, obj.Object())
+	// DeleteModelCascade 将会删除模型/模型属性/属性分组/唯一校验
+	rsp, err := o.clientSet.CoreService().Model().DeleteModelCascade(kit.Ctx, kit.Header, id)
+	if nil != err {
+		blog.Errorf("[operation-obj] failed to request the object controller, err: %s, rid: %s", err.Error(), kit.Rid)
+		return kit.CCError.Error(common.CCErrCommHTTPDoRequestFailed)
+	}
+	if !rsp.Result {
+		blog.Errorf("[operation-obj] failed to delete the object by the id(%d), rid: %s", id, kit.Rid)
+		return kit.CCError.New(rsp.Code, rsp.ErrMsg)
 	}
 
-	for _, obj := range objs {
-		// check if is can be deleted
-		if needCheckInst {
-			if err := o.CanDelete(params, obj); nil != err {
-				return err
-			}
-		}
-
-		rsp, err := o.clientSet.CoreService().Model().DeleteModelCascade(context.Background(), params.Header, &metadata.DeleteOption{Condition: cond.ToMapStr()})
-		if nil != err {
-			blog.Errorf("[operation-obj] failed to request the object controller, err: %s, rid: %s", err.Error(), params.ReqID)
-			return params.Err.Error(common.CCErrCommHTTPDoRequestFailed)
-		}
-		if !rsp.Result {
-			blog.Errorf("[operation-obj] failed to delete the object by the condition(%#v) or the id(%d), rid: %s", cond.ToMapStr(), id, params.ReqID)
-			return params.Err.New(rsp.Code, rsp.ErrMsg)
-		}
-
-	}
-
-	// auth: deregister models
-	if err := o.authManager.DeregisterObject(params.Context, params.Header, objects...); err != nil {
-		return params.Err.New(common.CCErrCommUnRegistResourceToIAMFailed, err.Error())
+	// save audit log.
+	if err := audit.SaveAuditLog(kit, *auditLog); err != nil {
+		blog.Errorf("delete object %s success, save audit log failed, err: %v, rid: %s", object.ObjectName, err, kit.Rid)
+		return err
 	}
 
 	return nil
 }
 
-func (o *object) isFrom(params types.ContextParams, fromObjID, toObjID string) (bool, error) {
-
-	asstItems, err := o.asst.SearchObjectAssociation(params, fromObjID)
+func (o *object) isFrom(kit *rest.Kit, fromObjID, toObjID string) (bool, error) {
+	asstItems, err := o.asst.SearchObjectAssociation(kit, fromObjID)
 	if nil != err {
 		return false, err
 	}
@@ -603,17 +619,17 @@ func (o *object) isFrom(params types.ContextParams, fromObjID, toObjID string) (
 	return false, nil
 }
 
-func (o *object) FindObjectTopo(params types.ContextParams, cond condition.Condition) ([]metadata.ObjectTopo, error) {
-	objs, err := o.FindObject(params, cond)
+func (o *object) FindObjectTopo(kit *rest.Kit, cond condition.Condition) ([]metadata.ObjectTopo, error) {
+	objs, err := o.FindObject(kit, cond)
 	if nil != err {
-		blog.Errorf("[operation-obj] failed to find object, err: %s, rid: %s", err.Error(), params.ReqID)
+		blog.Errorf("[operation-obj] failed to find object, err: %s, rid: %s", err.Error(), kit.Rid)
 		return nil, err
 	}
 
 	results := make([]metadata.ObjectTopo, 0)
 	for _, obj := range objs {
 		object := obj.Object()
-		asstItems, err := o.asst.SearchObjectAssociation(params, object.ObjectID)
+		asstItems, err := o.asst.SearchObjectAssociation(kit, object.ObjectID)
 		if nil != err {
 			return nil, err
 		}
@@ -627,28 +643,28 @@ func (o *object) FindObjectTopo(params types.ContextParams, cond condition.Condi
 				Condition: typeCond.ToMapStr(),
 			}
 
-			resp, err := o.asst.SearchType(params, request)
+			resp, err := o.asst.SearchType(kit, request)
 			if err != nil {
-				blog.Errorf("find object topo failed, because get association kind[%s] failed, err: %v, rid: %s", asst.AsstKindID, err, params.ReqID)
-				return nil, params.Err.Errorf(common.CCErrTopoGetAssociationKindFailed, asst.AsstKindID)
+				blog.Errorf("find object topo failed, because get association kind[%s] failed, err: %v, rid: %s", asst.AsstKindID, err, kit.Rid)
+				return nil, kit.CCError.Errorf(common.CCErrTopoGetAssociationKindFailed, asst.AsstKindID)
 			}
 			if !resp.Result {
-				blog.Errorf("find object topo failed, because get association kind[%s] failed, err: %v, rid: %s", asst.AsstKindID, resp.ErrMsg, params.ReqID)
-				return nil, params.Err.Errorf(common.CCErrTopoGetAssociationKindFailed, asst.AsstKindID)
+				blog.Errorf("find object topo failed, because get association kind[%s] failed, err: %v, rid: %s", asst.AsstKindID, resp.ErrMsg, kit.Rid)
+				return nil, kit.CCError.Errorf(common.CCErrTopoGetAssociationKindFailed, asst.AsstKindID)
 			}
 
 			// should only be one association kind.
 			if len(resp.Data.Info) == 0 {
-				blog.Errorf("find object topo failed, because get association kind[%s] failed, err: can not find this association kind., rid: %s", asst.AsstKindID, params.ReqID)
-				return nil, params.Err.Errorf(common.CCErrTopoGetAssociationKindFailed, asst.AsstKindID)
+				blog.Errorf("find object topo failed, because get association kind[%s] failed, err: can not find this association kind., rid: %s", asst.AsstKindID, kit.Rid)
+				return nil, kit.CCError.Errorf(common.CCErrTopoGetAssociationKindFailed, asst.AsstKindID)
 			}
 
 			cond = condition.CreateCondition()
 			cond.Field(common.BKObjIDField).Eq(asst.AsstObjID)
 
-			asstObjs, err := o.FindObject(params, cond)
+			asstObjs, err := o.FindObject(kit, cond)
 			if nil != err {
-				blog.Errorf("[operation-obj] failed to find object, err: %s, rid: %s", err.Error(), params.ReqID)
+				blog.Errorf("[operation-obj] failed to find object, err: %s, rid: %s", err.Error(), kit.Rid)
 				return nil, err
 			}
 
@@ -676,7 +692,7 @@ func (o *object) FindObjectTopo(params types.ContextParams, cond condition.Condi
 				tmp.To.ClassificationID = cls.Classify().ClassificationID
 				tmp.To.Position = assocObject.Position
 				tmp.To.ObjName = assocObject.ObjectName
-				ok, err := o.isFrom(params, assocObject.ObjectID, object.ObjectID)
+				ok, err := o.isFrom(kit, assocObject.ObjectID, object.ObjectID)
 				if nil != err {
 					return nil, err
 				}
@@ -696,80 +712,76 @@ func (o *object) FindObjectTopo(params types.ContextParams, cond condition.Condi
 	return results, nil
 }
 
-func (o *object) FindObject(params types.ContextParams, cond condition.Condition) ([]model.Object, error) {
+func (o *object) FindObject(kit *rest.Kit, cond condition.Condition) ([]model.Object, error) {
 	fCond := cond.ToMapStr()
-	if nil != params.MetaData {
-		// search model from special business
-		fCond.Merge(metadata.PublicAndBizCondition(*params.MetaData))
-		fCond.Remove(metadata.BKMetadata)
-	} else {
-		// search global shared model
-		fCond.Merge(metadata.BizLabelNotExist)
-	}
-	rsp, err := o.clientSet.CoreService().Model().ReadModel(context.Background(), params.Header, &metadata.QueryCondition{Condition: fCond})
+
+	rsp, err := o.clientSet.CoreService().Model().ReadModel(context.Background(), kit.Header, &metadata.QueryCondition{Condition: fCond})
 	if nil != err {
-		blog.Errorf("[operation-obj] find object failed, cond: %+v, err: %s, rid: %s", fCond, err.Error(), params.ReqID)
-		return nil, params.Err.Error(common.CCErrCommHTTPDoRequestFailed)
+		blog.Errorf("[operation-obj] find object failed, cond: %+v, err: %s, rid: %s", fCond, err.Error(), kit.Rid)
+		return nil, kit.CCError.Error(common.CCErrCommHTTPDoRequestFailed)
 	}
 
 	if !rsp.Result {
-		blog.Errorf("[operation-obj] failed to search the objects by the condition(%#v) , error info is %s, rid: %s", fCond, rsp.ErrMsg, params.ReqID)
-		return nil, params.Err.New(rsp.Code, rsp.ErrMsg)
+		blog.Errorf("[operation-obj] failed to search the objects by the condition(%#v) , error info is %s, rid: %s", fCond, rsp.ErrMsg, kit.Rid)
+		return nil, kit.CCError.New(rsp.Code, rsp.ErrMsg)
 	}
 
 	models := make([]metadata.Object, 0)
 	for index := range rsp.Data.Info {
 		models = append(models, rsp.Data.Info[index].Spec)
 	}
-	return model.CreateObject(params, o.clientSet, models), nil
+	return model.CreateObject(kit, o.clientSet, models), nil
 }
 
-func (o *object) UpdateObject(params types.ContextParams, data mapstr.MapStr, id int64) error {
+func (o *object) UpdateObject(kit *rest.Kit, data mapstr.MapStr, id int64) error {
 
-	obj := o.modelFactory.CreateObject(params)
+	obj := o.modelFactory.CreateObject(kit)
 	obj.SetRecordID(id)
 	err := obj.Parse(data)
 	if nil != err {
-		blog.Errorf("[operation-obj] failed to parse the data(%#v), err: %s, rid: %s", data, err.Error(), params.ReqID)
+		blog.Errorf("[operation-obj] failed to parse the data(%#v), err: %s, rid: %s", data, err.Error(), kit.Rid)
 		return err
 	}
 
 	object := obj.Object()
 
-	/*
-		// auth: check authorization
-		if err := o.authManager.AuthorizeObjectByRawID(params.Context, params.Header, meta.Update, object.ObjectID); err != nil {
-			blog.V(2).Infof("update model %s failed, authorization failed, err: %+v, rid: %s", object.ObjectID, err, params.ReqID)
-			return err
-		}
-	*/
+	// remove unchangeable fields.
+	data.Remove(metadata.ModelFieldObjectID)
+	data.Remove(metadata.ModelFieldID)
+	data.Remove(metadata.ModelFieldObjCls)
 
-	// check repeated
+	// generate audit log of object attribute group.
+	audit := auditlog.NewObjectAuditLog(o.clientSet.CoreService())
+	generateAuditParameter := auditlog.NewGenerateAuditCommonParameter(kit, metadata.AuditUpdate).WithUpdateFields(data)
+	auditLog, err := audit.GenerateAuditLog(generateAuditParameter, obj.Object().ID, nil)
+	if err != nil {
+		blog.Errorf("generate audit log failed before update object, objName: %s, err: %v, rid: %s",
+			object.ObjectName, err, kit.Rid)
+		return err
+	}
+
+	// check repeated.
 	exists, err := obj.IsExists()
 	if nil != err {
-		blog.Errorf("[operation-obj] failed to update the object(%#v), err: %s, rid: %s", data, err.Error(), params.ReqID)
-		return params.Err.New(common.CCErrTopoObjectCreateFailed, err.Error())
+		blog.Errorf("[operation-obj] failed to update the object(%#v), err: %s, rid: %s", data, err.Error(), kit.Rid)
+		return kit.CCError.New(common.CCErrTopoObjectUpdateFailed, err.Error())
 	}
 
 	if exists {
-		blog.Errorf("[operation-obj] the object(%#v) is repeated, rid: %s", data, params.ReqID)
-		return params.Err.Errorf(common.CCErrCommDuplicateItem, obj.Object().ObjectName)
+		blog.Errorf("[operation-obj] the object(%#v) is repeated, rid: %s", data, kit.Rid)
+		return kit.CCError.Errorf(common.CCErrCommDuplicateItem, obj.Object().ObjectName)
 	}
 	if err = obj.Update(data); nil != err {
-		blog.Errorf("[operation-obj] failed to update the object(%d), the new data(%#v), err: %s, rid: %s", id, data, err.Error(), params.ReqID)
-		return params.Err.New(common.CCErrTopoObjectUpdateFailed, err.Error())
+		blog.Errorf("[operation-obj] failed to update the object(%d), the new data(%#v), err: %s, rid: %s", id, data, err.Error(), kit.Rid)
+		return kit.CCError.New(common.CCErrTopoObjectUpdateFailed, err.Error())
 	}
 
-	bizID, err := metadata.BizIDFromMetadata(object.Metadata)
-	if err != nil {
-		blog.Error("update object: %s, but parse business id failed, err: %v, rid: %s", object.ObjectID, err, params.ReqID)
-		return params.Err.New(common.CCErrTopoObjectUpdateFailed, err.Error())
+	// save audit log.
+	if err := audit.SaveAuditLog(kit, *auditLog); err != nil {
+		blog.Errorf("update object %s success, but save audit log failed, err: %v, rid: %s",
+			object.ObjectName, err, kit.Rid)
+		return err
 	}
 
-	// auth update register info
-	if err := o.authManager.UpdateRegisteredObjectsByRawIDs(params.Context, params.Header, bizID, id); err != nil {
-		blog.Errorf("update object %s success, but update to auth failed, err: %v, rid: %s", object.ObjectName, err, params.ReqID)
-		return params.Err.New(common.CCErrCommRegistResourceToIAMFailed, err.Error())
-	}
 	return nil
 }

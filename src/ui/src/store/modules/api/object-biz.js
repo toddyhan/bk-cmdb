@@ -9,26 +9,23 @@
  */
 
 import $http from '@/api'
-// import jsCookie from 'js-cookie'
 
 const state = {
     business: [],
     bizId: null,
-    authorizedBusiness: []
+    authorizedBusiness: null
 }
 
 const getters = {
     business: state => state.business,
     bizId: state => state.bizId,
-    authorizedBusiness: state => state.authorizedBusiness
+    currentBusiness: state => state.authorizedBusiness.find(business => business.bk_biz_id === state.bizId),
+    authorizedBusiness: state => state.authorizedBusiness || []
 }
 
 const actions = {
-    getAuthorizedBusiness ({ commit }, config = {}) {
-        return $http.get('biz/with_reduced', config).then(data => {
-            commit('setAuthorizedBusiness', data.info)
-            return data.info
-        })
+    getAuthorizedBusiness ({ commit, state }, config = {}) {
+        return $http.get('biz/with_reduced?sort=bk_biz_id', config)
     },
     /**
      * 添加业务
@@ -88,8 +85,8 @@ const actions = {
      * @param {Number} bizId 业务id
      * @return {promises} promises 对象
      */
-    recoveryBusiness ({ commit, state, dispatch, rootGetters }, { params, config }) {
-        return $http.put(`biz/status/enable/${rootGetters.supplierAccount}/${params['bk_biz_id']}`, {}, config)
+    recoveryBusiness ({ commit, state, dispatch, rootGetters }, { bizId, params, config }) {
+        return $http.put(`biz/status/enable/${rootGetters.supplierAccount}/${bizId}`, params, config)
     },
 
     /**
@@ -102,7 +99,7 @@ const actions = {
      * @return {promises} promises 对象
      */
     searchBusiness ({ commit, state, dispatch, rootGetters }, { params, config }) {
-        return $http.post(`biz/search/${rootGetters.supplierAccount}`, params, config)
+        return $http.post(`${window.API_HOST}biz/search/web`, params, config)
     },
 
     searchBusinessById ({ rootGetters }, { bizId, config }) {
@@ -120,6 +117,9 @@ const actions = {
         }, config).then(data => {
             return data.info[0] || {}
         })
+    },
+    getFullAmountBusiness ({ commit }, config = {}) {
+        return $http.get('biz/simplify', config)
     }
 }
 

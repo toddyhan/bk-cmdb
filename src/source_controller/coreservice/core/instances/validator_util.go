@@ -13,7 +13,6 @@
 package instances
 
 import (
-	"configcenter/src/common/util"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -22,10 +21,10 @@ import (
 	"configcenter/src/common/blog"
 	"configcenter/src/common/mapstr"
 	"configcenter/src/common/metadata"
+	"configcenter/src/common/util"
 
-	"github.com/rentiansheng/bk_bson/bson"
 	"github.com/tidwall/gjson"
-	mgobson "gopkg.in/mgo.v2/bson"
+	"go.mongodb.org/mongo-driver/bson"
 )
 
 // EnumOption enum option
@@ -106,13 +105,6 @@ func ParseEnumOption(ctx context.Context, val interface{}) (EnumOption, error) {
 				enumOption.Type = getString(option["type"])
 				enumOption.IsDefault = getBool(option["is_default"])
 				enumOptions = append(enumOptions, enumOption)
-			} else if option, ok := optionVal.(mgobson.M); ok {
-				enumOption := EnumVal{}
-				enumOption.ID = getString(option["id"])
-				enumOption.Name = getString(option["name"])
-				enumOption.Type = getString(option["type"])
-				enumOption.IsDefault = getBool(option["is_default"])
-				enumOptions = append(enumOptions, enumOption)
 			} else {
 				return nil, fmt.Errorf("unknow val type: %#v", val)
 			}
@@ -158,9 +150,6 @@ func parseIntOption(ctx context.Context, val interface{}) IntOption {
 	case map[string]interface{}:
 		intOption.Min = getString(option["min"])
 		intOption.Max = getString(option["max"])
-	case mgobson.M:
-		intOption.Min = getString(option["min"])
-		intOption.Max = getString(option["max"])
 	case bson.M:
 		intOption.Min = getString(option["min"])
 		intOption.Max = getString(option["max"])
@@ -188,9 +177,6 @@ func parseFloatOption(ctx context.Context, val interface{}) FloatOption {
 	case map[string]interface{}:
 		floatOption.Min = getString(option["min"])
 		floatOption.Max = getString(option["max"])
-	case mgobson.M:
-		floatOption.Min = getString(option["min"])
-		floatOption.Max = getString(option["max"])
 	case bson.M:
 		floatOption.Min = getString(option["min"])
 		floatOption.Max = getString(option["max"])
@@ -205,17 +191,10 @@ func parseFloatOption(ctx context.Context, val interface{}) FloatOption {
 }
 
 // FillLostedFieldValue fill the value in inst map data
-func FillLostedFieldValue(ctx context.Context, valData mapstr.MapStr, propertys []metadata.Attribute, ignorefields []string) {
+func FillLostedFieldValue(ctx context.Context, valData mapstr.MapStr, propertys []metadata.Attribute) {
 	rid := util.ExtractRequestIDFromContext(ctx)
-	ignores := map[string]bool{}
-	for _, field := range ignorefields {
-		ignores[field] = true
-	}
 	for _, field := range propertys {
 		if field.PropertyID == common.BKChildStr || field.PropertyID == common.BKParentStr {
-			continue
-		}
-		if ignores[field.PropertyID] {
 			continue
 		}
 		_, ok := valData[field.PropertyID]
@@ -228,14 +207,14 @@ func FillLostedFieldValue(ctx context.Context, valData mapstr.MapStr, propertys 
 			case common.FieldTypeInt:
 				valData[field.PropertyID] = nil
 			case common.FieldTypeEnum:
-				enumOptions, err := ParseEnumOption(ctx, field.Option)
+				enumOptions, err := metadata.ParseEnumOption(ctx, field.Option)
 				if err != nil {
 					blog.Warnf("ParseEnumOption failed: %v, rid: %s", err, rid)
 					valData[field.PropertyID] = nil
 					continue
 				}
 				if len(enumOptions) > 0 {
-					var defaultOption *EnumVal
+					var defaultOption *metadata.EnumVal
 					for _, k := range enumOptions {
 						if k.IsDefault {
 							defaultOption = &k
@@ -256,7 +235,7 @@ func FillLostedFieldValue(ctx context.Context, valData mapstr.MapStr, propertys 
 				valData[field.PropertyID] = nil
 			case common.FieldTypeUser:
 				valData[field.PropertyID] = nil
-			case common.FieldTypeMultiAsst:
+			case common.FieldTypeOrganization:
 				valData[field.PropertyID] = nil
 			case common.FieldTypeTimeZone:
 				valData[field.PropertyID] = nil

@@ -13,19 +13,20 @@
 package mainline
 
 import (
+	"configcenter/src/common/language"
 	"configcenter/src/source_controller/coreservice/core"
-	"configcenter/src/storage/dal"
 )
 
 var _ core.TopoOperation = (*topoManager)(nil)
 
 type topoManager struct {
-	DbProxy dal.RDB
+	lang language.CCLanguageIf
 }
 
 // New create a new model manager instance
-func New(dbProxy dal.RDB) core.TopoOperation {
+func New(lang language.CCLanguageIf) core.TopoOperation {
 
-	coreMgr := &topoManager{DbProxy: dbProxy}
-	return coreMgr
+	return &topoManager{
+		lang: lang,
+	}
 }

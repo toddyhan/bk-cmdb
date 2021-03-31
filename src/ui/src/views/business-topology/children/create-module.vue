@@ -1,6 +1,6 @@
 <template>
     <div class="node-create-layout">
-        <h2 class="node-create-title">{{$t('新增模块')}}</h2>
+        <h2 class="node-create-title">{{$t('新建模块')}}</h2>
         <div class="node-create-path" :title="topoPath">{{$t('添加节点已选择')}}：{{topoPath}}</div>
         <div class="node-create-form"
             :style="{
@@ -14,7 +14,7 @@
                         name="createType"
                         v-model="withTemplate"
                         :value="1">
-                    <label for="formTemplate">{{$t('从模板创建')}}</label>
+                    <label for="formTemplate">{{$t('从模板新建')}}</label>
                 </div>
                 <div class="create-type fl ml50">
                     <input class="type-radio"
@@ -23,7 +23,7 @@
                         name="createType"
                         v-model="withTemplate"
                         :value="0">
-                    <label for="createDirectly">{{$t('直接创建')}}</label>
+                    <label for="createDirectly">{{$t('直接新建')}}</label>
                 </div>
             </div>
             <div class="form-item" v-if="withTemplate">
@@ -31,8 +31,9 @@
                 <bk-select style="width: 100%;"
                     :clearable="false"
                     :searchable="templateList.length > 7"
+                    :loading="$loading(request.serviceTemplate)"
                     v-model="template"
-                    v-validate.disabled="'required'"
+                    v-validate="'required'"
                     data-vv-name="template"
                     key="template">
                     <bk-option v-for="(option, index) in templateList"
@@ -42,7 +43,7 @@
                     </bk-option>
                     <div class="add-template" slot="extension" @click="jumpServiceTemplate" v-if="!templateList.length">
                         <i class="bk-icon icon-plus-circle"></i>
-                        <span>{{$t('新建模板')}}</span>
+                        <span>{{$t('新建服务模板')}}</span>
                     </div>
                 </bk-select>
                 <span class="form-error" v-if="errors.has('template')">{{errors.first('template')}}</span>
@@ -58,7 +59,7 @@
                 </label>
                 <cmdb-form-singlechar
                     v-model="moduleName"
-                    v-validate="'required|singlechar|length:256'"
+                    v-validate="'required|singlechar|businessTopoInstNames|length:256'"
                     data-vv-name="moduleName"
                     key="moduleName"
                     :placeholder="$t('请输入xx', { name: $t('模块名称') })"
@@ -67,21 +68,24 @@
                 <span class="form-error" v-if="errors.has('moduleName')">{{errors.first('moduleName')}}</span>
             </div>
             <div class="form-item clearfix" v-if="!withTemplate">
-                <label>{{$t('服务实例分类')}}<font color="red">*</font></label>
+                <label>{{$t('所属服务分类')}}<font color="red">*</font></label>
                 <cmdb-selector class="service-class fl"
                     v-model="firstClass"
-                    v-validate.disabled="'required'"
+                    v-validate="'required'"
                     data-vv-name="firstClass"
                     key="firstClass"
                     :auto-select="false"
-                    :list="firstClassList">
+                    :list="firstClassList"
+                    :loading="$loading(request.serviceCategory)"
+                    @on-selected="updateCategory">
                 </cmdb-selector>
                 <cmdb-selector class="service-class fr"
                     v-model="secondClass"
-                    v-validate.disabled="'required'"
+                    v-validate="'required'"
                     data-vv-name="secondClass"
                     key="secondClass"
-                    :list="secondClassList">
+                    :list="secondClassList"
+                    :loading="$loading(request.serviceCategory)">
                 </cmdb-selector>
                 <span class="form-error" v-if="errors.has('firstClass')">{{errors.first('firstClass')}}</span>
                 <span class="form-error second-class" v-if="errors.has('secondClass')">{{errors.first('secondClass')}}</span>
@@ -91,7 +95,7 @@
             <bk-button theme="primary"
                 :disabled="$loading() || errors.any()"
                 @click="handleSave">
-                {{$t('确定')}}
+                {{$t('提交')}}
             </bk-button>
             <bk-button theme="default" @click="handleCancel">{{$t('取消')}}</bk-button>
         </div>
@@ -123,7 +127,11 @@
                 firstClass: '',
                 firstClassList: [],
                 secondClass: '',
-                values: {}
+                values: {},
+                request: {
+                    serviceTemplate: Symbol('serviceTemplate'),
+                    serviceCategory: Symbol('serviceCategory')
+                }
             }
         },
         computed: {
@@ -135,13 +143,13 @@
                 return this.$store.getters['objectBiz/bizId']
             },
             serviceTemplateMap () {
-                return this.$store.state.businessTopology.serviceTemplateMap
+                return this.$store.state.businessHost.serviceTemplateMap
             },
             currentTemplate () {
                 return this.templateList.find(item => item.id === this.template) || {}
             },
             categoryMap () {
-                return this.$store.state.businessTopology.categoryMap
+                return this.$store.state.businessHost.categoryMap
             },
             currentCategory () {
                 return this.firstClassList.find(category => category.id === this.firstClass) || {}
@@ -153,10 +161,11 @@
         watch: {
             withTemplate (withTemplate) {
                 if (withTemplate) {
-                    this.firstClass = ''
-                    this.secondClass = ''
+                    this.updateCategory()
+                    this.template = this.templateList.length ? this.templateList[0].id : ''
                 } else {
                     this.template = ''
+                    this.updateCategory(1)
                     this.getServiceCategories()
                 }
             },
@@ -178,11 +187,19 @@
                 } else {
                     try {
                         const data = await this.$store.dispatch('serviceTemplate/searchServiceTemplate', {
-                            params: this.$injectMetadata()
+                            params: {
+                                bk_biz_id: this.business,
+                                page: {
+                                    sort: 'name'
+                                }
+                            },
+                            config: {
+                                requestId: this.request.serviceTemplate
+                            }
                         })
                         const templates = data.info.map(item => item.service_template)
                         this.templateList = templates
-                        this.$store.commit('businessTopology/setServiceTemplate', {
+                        this.$store.commit('businessHost/setServiceTemplate', {
                             id: this.business,
                             templates: templates
                         })
@@ -199,11 +216,14 @@
                 } else {
                     try {
                         const data = await this.$store.dispatch('serviceClassification/searchServiceCategory', {
-                            params: this.$injectMetadata()
+                            params: { bk_biz_id: this.business },
+                            config: {
+                                requestId: this.request.serviceCategory
+                            }
                         })
                         const categories = this.collectServiceCategories(data.info)
                         this.firstClassList = categories
-                        this.$store.commit('businessTopology/setCategories', {
+                        this.$store.commit('businessHost/setCategories', {
                             id: this.business,
                             categories: categories
                         })
@@ -225,6 +245,15 @@
                 })
                 return categories
             },
+            updateCategory (firstClass) {
+                if (firstClass) {
+                    this.firstClass = firstClass
+                    this.secondClass = this.secondClassList.length ? this.secondClassList[0].id : ''
+                } else {
+                    this.firstClass = ''
+                    this.secondClass = ''
+                }
+            },
             handleSave () {
                 this.$validator.validateAll().then(isValid => {
                     if (isValid) {
@@ -240,7 +269,12 @@
                 this.$emit('cancel')
             },
             jumpServiceTemplate () {
-                this.$router.push({ name: MENU_BUSINESS_SERVICE_TEMPLATE })
+                this.$routerActions.redirect({
+                    name: MENU_BUSINESS_SERVICE_TEMPLATE,
+                    params: {
+                        bizId: this.business
+                    }
+                })
             }
         }
     }
@@ -325,9 +359,6 @@
     font {
         padding: 0 2px;
     }
-</style>
-
-<style lang="scss">
     .add-template {
         width: 20%;
         cursor: pointer;

@@ -7,13 +7,21 @@ const magicboxLanguageMap = {
     zh_CN: magicbox.locale.lang.zhCN,
     en: magicbox.locale.lang.enUS
 }
-
 i18n.mergeLocaleMessage(i18n.locale, magicboxLanguageMap[i18n.locale])
 magicbox.locale.use(magicboxLanguageMap[i18n.locale])
 Vue.use(magicbox, {
     'bk-sideslider': {
         quickClose: true,
         width: 800
+    },
+    'bk-input': {
+        fontSize: 'medium'
+    },
+    'bk-select': {
+        fontSize: 'medium'
+    },
+    'bk-big-tree': {
+        useDefaultEmpty: true
     },
     i18n: (key, value) => i18n.t(key, value)
 })

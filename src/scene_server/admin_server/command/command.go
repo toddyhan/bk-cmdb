@@ -18,8 +18,7 @@ import (
 	"os"
 
 	"configcenter/src/common"
-	"configcenter/src/common/backbone/configcenter"
-	"configcenter/src/storage/dal/mongo"
+	cc "configcenter/src/common/backbone/configcenter"
 	"configcenter/src/storage/dal/mongo/local"
 
 	"github.com/spf13/pflag"
@@ -34,10 +33,6 @@ const (
 // Parse run app command
 func Parse(args []string) error {
 	ctx := context.Background()
-	if len(args) <= 1 || args[1] != bkbizCmdName {
-		return nil
-	}
-
 	var (
 		exportFlag     bool
 		importFlag     bool
@@ -48,6 +43,10 @@ func Parse(args []string) error {
 		bizName        string
 		scope          string
 	)
+
+	if len(args) <= 1 || args[1] != bkbizCmdName {
+		return nil
+	}
 
 	// set flags
 	cmdFlags := pflag.NewFlagSet(bkbizCmdName, pflag.ExitOnError)
@@ -60,19 +59,22 @@ func Parse(args []string) error {
 	cmdFlags.StringVar(&configPosition, "config", "conf/api.conf", "The config path. e.g conf/api.conf")
 	cmdFlags.StringVar(&bizName, "biz_name", "蓝鲸", "export/import the specified business topo")
 	err := cmdFlags.Parse(args[1:])
+
 	if err != nil {
 		return err
 	}
 
 	// read config
-	config, err := configcenter.ParseConfigWithFile(configPosition)
-	if nil != err {
+    if err := cc.SetMigrateFromFile(configPosition); err != nil {
 		return fmt.Errorf("parse config file error %s", err.Error())
 	}
-	mongoConfig := mongo.ParseConfigFromKV("mongodb", config.ConfigMap)
+	mongoConfig, err := cc.Mongo("mongodb")
+	if err != nil {
+		return err
+	}
 
 	// connect to mongo db
-	db, err := local.NewMgo(mongoConfig.BuildURI(), 0)
+	db, err := local.NewMgo(mongoConfig.GetMongoConf(), 0)
 	if err != nil {
 		return fmt.Errorf("connect mongo server failed %s", err.Error())
 	}
@@ -95,7 +97,7 @@ func Parse(args []string) error {
 		}
 		fmt.Printf("exporting %s business to %s in \033[34m%s\033[0m mode\n", bizName, filePath, mode)
 		if err := export(ctx, db, opt); err != nil {
-			fmt.Printf("export error: %s", err.Error())
+			fmt.Printf("export error: %s\n", err.Error())
 			os.Exit(2)
 		}
 		fmt.Printf("blueking %s has been export to %s\n", bizName, filePath)
@@ -108,7 +110,7 @@ func Parse(args []string) error {
 		opt.mini = false
 		opt.scope = scopeAll
 		if err := importBKBiz(ctx, db, opt); err != nil {
-			fmt.Printf("import error: %s", err.Error())
+			fmt.Printf("import error: %s\n", err.Error())
 			os.Exit(2)
 		}
 		if !dryRunFlag {

@@ -12,17 +12,15 @@
 package service
 
 import (
-	"context"
 	"net/http"
 	"time"
 
-	"configcenter/src/auth/extensions"
+	"configcenter/src/ac/extensions"
 	"configcenter/src/common"
 	"configcenter/src/common/backbone"
 	cfnc "configcenter/src/common/backbone/configcenter"
 	"configcenter/src/common/errors"
 	"configcenter/src/common/http/rest"
-	"configcenter/src/common/language"
 	"configcenter/src/common/metadata"
 	"configcenter/src/common/metric"
 	"configcenter/src/common/rdapi"
@@ -30,58 +28,22 @@ import (
 	"configcenter/src/common/util"
 	"configcenter/src/scene_server/proc_server/app/options"
 	"configcenter/src/scene_server/proc_server/logics"
-	"configcenter/src/storage/dal"
-	"configcenter/src/storage/dal/mongo"
-	ccRedis "configcenter/src/storage/dal/redis"
-	"configcenter/src/thirdpartyclient/esbserver"
-	"configcenter/src/thirdpartyclient/esbserver/esbutil"
+	"configcenter/src/thirdparty/esbserver"
+	"configcenter/src/thirdparty/esbserver/esbutil"
 
 	"github.com/emicklei/go-restful"
-	"gopkg.in/redis.v5"
 )
-
-type srvComm struct {
-	header        http.Header
-	rid           string
-	ccErr         errors.DefaultCCErrorIf
-	ccLang        language.DefaultCCLanguageIf
-	ctx           context.Context
-	ctxCancelFunc context.CancelFunc
-	user          string
-	ownerID       string
-	lgc           *logics.Logics
-}
 
 type ProcServer struct {
 	*backbone.Engine
 	EsbConfigChn       chan esbutil.EsbConfig
 	Config             *options.Config
 	EsbSrv             esbserver.EsbClientInterface
-	Cache              *redis.Client
 	procHostInstConfig logics.ProcHostInstConfig
 	ConfigMap          map[string]string
 	AuthManager        *extensions.AuthManager
 	Logic              *logics.Logic
-	TransactionClient  dal.Transcation
-}
-
-func (ps *ProcServer) newSrvComm(header http.Header) *srvComm {
-	rid := util.GetHTTPCCRequestID(header)
-	lang := util.GetLanguage(header)
-	ctx, cancel := ps.Engine.CCCtx.WithCancel()
-	ctx = context.WithValue(ctx, common.ContextRequestIDField, rid)
-
-	return &srvComm{
-		header:        header,
-		rid:           util.GetHTTPCCRequestID(header),
-		ccErr:         ps.CCErr.CreateDefaultCCErrorIf(lang),
-		ccLang:        ps.Language.CreateDefaultCCLanguageIf(lang),
-		ctx:           ctx,
-		ctxCancelFunc: cancel,
-		user:          util.GetUser(header),
-		ownerID:       util.GetOwnerID(header),
-		lgc:           logics.NewLogics(ps.Engine, header, ps.Cache, ps.EsbSrv, &ps.procHostInstConfig),
-	}
+	EnableTxn          bool
 }
 
 func (ps *ProcServer) WebService() *restful.Container {
@@ -139,12 +101,16 @@ func (ps *ProcServer) newProcessService(web *restful.WebService) {
 
 	// service instance
 	utility.AddHandler(rest.Action{Verb: http.MethodPost, Path: "/create/proc/service_instance", Handler: ps.CreateServiceInstances})
+	utility.AddHandler(rest.Action{Verb: http.MethodPost, Path: "/create/proc/service_instance/preview", Handler: ps.CreateServiceInstancesPreview})
 	utility.AddHandler(rest.Action{Verb: http.MethodPost, Path: "/findmany/proc/service_instance", Handler: ps.SearchServiceInstancesInModule})
 	utility.AddHandler(rest.Action{Verb: http.MethodPost, Path: "/findmany/proc/web/service_instance", Handler: ps.SearchServiceInstancesInModuleWeb})
+	utility.AddHandler(rest.Action{Verb: http.MethodPost, Path: "/findmany/proc/service/set_template/list_service_instance/biz/{bk_biz_id}", Handler: ps.SearchServiceInstancesBySetTemplate})
 	utility.AddHandler(rest.Action{Verb: http.MethodPost, Path: "/findmany/proc/service_instance/with_host", Handler: ps.ListServiceInstancesWithHost})
 	utility.AddHandler(rest.Action{Verb: http.MethodPost, Path: "/findmany/proc/web/service_instance/with_host", Handler: ps.ListServiceInstancesWithHostWeb})
 	utility.AddHandler(rest.Action{Verb: http.MethodPost, Path: "/findmany/proc/service_instance/details", Handler: ps.ListServiceInstancesDetails})
+	utility.AddHandler(rest.Action{Verb: http.MethodPut, Path: "/updatemany/proc/service_instance/biz/{bk_biz_id}", Handler: ps.UpdateServiceInstances})
 	utility.AddHandler(rest.Action{Verb: http.MethodDelete, Path: "/deletemany/proc/service_instance", Handler: ps.DeleteServiceInstance})
+	utility.AddHandler(rest.Action{Verb: http.MethodPost, Path: "/deletemany/proc/service_instance/preview", Handler: ps.DeleteServiceInstancePreview})
 	utility.AddHandler(rest.Action{Verb: http.MethodPost, Path: "/find/proc/service_instance/difference", Handler: ps.DiffServiceInstanceWithTemplate})
 	utility.AddHandler(rest.Action{Verb: http.MethodPut, Path: "/update/proc/service_instance/sync", Handler: ps.SyncServiceInstanceByTemplate})
 	utility.AddHandler(rest.Action{Verb: http.MethodPost, Path: "/createmany/proc/service_instance/labels", Handler: ps.ServiceInstanceAddLabels})
@@ -156,6 +122,12 @@ func (ps *ProcServer) newProcessService(web *restful.WebService) {
 	utility.AddHandler(rest.Action{Verb: http.MethodPut, Path: "/update/proc/process_instance", Handler: ps.UpdateProcessInstances})
 	utility.AddHandler(rest.Action{Verb: http.MethodDelete, Path: "/delete/proc/process_instance", Handler: ps.DeleteProcessInstance})
 	utility.AddHandler(rest.Action{Verb: http.MethodPost, Path: "/findmany/proc/process_instance", Handler: ps.ListProcessInstances})
+	utility.AddHandler(rest.Action{Verb: http.MethodPost, Path: "/findmany/proc/process_instance/with_host", Handler: ps.ListProcessInstancesWithHost})
+	utility.AddHandler(rest.Action{Verb: http.MethodPost, Path: "/findmany/proc/process_related_info/biz/{bk_biz_id}", Handler: ps.ListProcessRelatedInfo})
+	utility.AddHandler(rest.Action{Verb: http.MethodPost, Path: "/findmany/proc/process_instance/name_ids", Handler: ps.ListProcessInstancesNameIDsInModule})
+	utility.AddHandler(rest.Action{Verb: http.MethodPost, Path: "/findmany/proc/process_instance/detail/by_ids", Handler: ps.ListProcessInstancesDetailsByIDs})
+	utility.AddHandler(rest.Action{Verb: http.MethodPost, Path: "/findmany/proc/process_instance/detail/biz/{bk_biz_id}", Handler: ps.ListProcessInstancesDetails})
+	utility.AddHandler(rest.Action{Verb: http.MethodPut, Path: "/update/proc/process_instance/by_ids", Handler: ps.UpdateProcessInstancesByIDs})
 
 	// module
 	utility.AddHandler(rest.Action{Verb: http.MethodDelete, Path: "/delete/proc/template_binding_on_module", Handler: ps.RemoveTemplateBindingOnModule})
@@ -183,7 +155,7 @@ func (ps *ProcServer) Healthz(req *restful.Request, resp *restful.Response) {
 	meta.Items = append(meta.Items, coreSrv)
 
 	for _, item := range meta.Items {
-		if item.IsHealthy == false {
+		if !item.IsHealthy {
 			meta.IsHealthy = false
 			meta.Message = "proc server is unhealthy"
 			break
@@ -191,7 +163,7 @@ func (ps *ProcServer) Healthz(req *restful.Request, resp *restful.Response) {
 	}
 
 	info := metric.HealthInfo{
-		Module:     types.CC_MODULE_HOST,
+		Module:     types.CC_MODULE_PROC,
 		HealthMeta: meta,
 		AtTime:     metadata.Now(),
 	}
@@ -208,43 +180,40 @@ func (ps *ProcServer) Healthz(req *restful.Request, resp *restful.Response) {
 }
 
 func (ps *ProcServer) OnProcessConfigUpdate(previous, current cfnc.ProcessConfig) {
-	esbAddr, addrOk := current.ConfigMap["esb.addr"]
-	esbAppCode, appCodeOk := current.ConfigMap["esb.appCode"]
-	esbAppSecret, appSecretOk := current.ConfigMap["esb.appSecret"]
-	if addrOk && appCodeOk && appSecretOk {
+	esbAddr, addrErr := cfnc.String("procServer.esb.addr")
+	esbAppCode, appCodeErr := cfnc.String("procServer.esb.appCode")
+	esbAppSecret, appSecretErr := cfnc.String("procServer.esb.appSecret")
+	if addrErr == nil && appCodeErr == nil && appSecretErr == nil {
 		go func() {
 			ps.EsbConfigChn <- esbutil.EsbConfig{Addrs: esbAddr, AppCode: esbAppCode, AppSecret: esbAppSecret}
 		}()
 	}
 
-	cfg := ccRedis.ParseConfigFromKV("redis", current.ConfigMap)
-	ps.Config = &options.Config{
-		Redis: &cfg,
-	}
+	ps.Config = &options.Config{}
 
-	hostInstPrefix := "host instance"
+	hostInstPrefix := "procServer.host-instance"
 	procHostInstConfig := &ps.procHostInstConfig
-	if val, ok := current.ConfigMap[hostInstPrefix+".maxEventCount"]; ok {
-		eventCount, err := util.GetIntByInterface(val)
+	maxEventCountVal, err := cfnc.String(hostInstPrefix + ".maxEventCount")
+	if err == nil {
+		eventCount, err := util.GetIntByInterface(maxEventCountVal)
 		if nil == err {
 			procHostInstConfig.MaxEventCount = eventCount
 		}
 	}
-	if val, ok := current.ConfigMap[hostInstPrefix+".maxModuleIDCount"]; ok {
-		midCount, err := util.GetIntByInterface(val)
+
+	maxModuleIDCountVal, err := cfnc.String(hostInstPrefix + ".maxModuleIDCount")
+	if err == nil {
+		midCount, err := util.GetIntByInterface(maxModuleIDCountVal)
 		if nil == err {
 			procHostInstConfig.MaxRefreshModuleCount = midCount
 		}
 	}
-	if val, ok := current.ConfigMap[hostInstPrefix+".getModuleIDInterval"]; ok {
-		getMidInterval, err := util.GetIntByInterface(val)
+
+	getModuleIDInterval, err := cfnc.String(hostInstPrefix + ".getModuleIDInterval")
+	if err == nil {
+		getMidInterval, err := util.GetIntByInterface(getModuleIDInterval)
 		if nil == err {
 			procHostInstConfig.GetModuleIDInterval = time.Duration(getMidInterval) * time.Second
 		}
 	}
-	ps.ConfigMap = current.ConfigMap
-
-	dbPrefix := "mongodb"
-	mongoCfg := mongo.ParseConfigFromKV(dbPrefix, current.ConfigMap)
-	ps.Config.Mongo = &mongoCfg
 }

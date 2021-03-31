@@ -19,27 +19,28 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"configcenter/src/common"
+	cErr "configcenter/src/common/errors"
 	"configcenter/src/common/mapstr"
 	"configcenter/src/common/selector"
 	"configcenter/src/common/util"
 )
 
 type DeleteCategoryInput struct {
-	Metadata Metadata `json:"metadata"`
-	ID       int64    `json:"id"`
+	ID int64 `json:"id"`
 }
 
 type CreateProcessTemplateBatchInput struct {
-	Metadata          Metadata        `json:"metadata"`
+	BizID             int64           `json:"bk_biz_id"`
 	ServiceTemplateID int64           `json:"service_template_id"`
 	Processes         []ProcessDetail `json:"processes"`
 }
 
 type DeleteProcessTemplateBatchInput struct {
-	Metadata         Metadata `json:"metadata"`
-	ProcessTemplates []int64  `json:"process_templates"`
+	BizID            int64   `json:"bk_biz_id"`
+	ProcessTemplates []int64 `json:"process_templates"`
 }
 
 type ProcessDetail struct {
@@ -47,10 +48,11 @@ type ProcessDetail struct {
 }
 
 type ListServiceTemplateInput struct {
-	Metadata Metadata `json:"metadata"`
+	BizID int64 `json:"bk_biz_id"`
 	// this field can be empty, it a optional condition.
-	ServiceCategoryID int64    `json:"service_category_id,omitempty"`
+	ServiceCategoryID int64    `json:"service_category_id"`
 	Page              BasePage `json:"page"`
+	Search            string   `json:"search"`
 }
 
 type ListServiceTemplateWithDetailResult struct {
@@ -61,65 +63,136 @@ type ListServiceTemplateWithDetailResult struct {
 }
 
 type DeleteServiceTemplatesInput struct {
-	Metadata          Metadata `json:"metadata"`
-	ServiceTemplateID int64    `json:"service_template_id"`
+	BizID             int64 `json:"bk_biz_id"`
+	ServiceTemplateID int64 `json:"service_template_id"`
 }
 
 type CreateServiceInstanceForServiceTemplateInput struct {
-	Metadata  Metadata                      `json:"metadata"`
-	Name      string                        `json:"name"`
-	ModuleID  int64                         `json:"bk_module_id"`
-	Instances []CreateServiceInstanceDetail `json:"instances"`
+	BizID                      int64                         `json:"bk_biz_id"`
+	Name                       string                        `json:"name"`
+	ModuleID                   int64                         `json:"bk_module_id"`
+	Instances                  []CreateServiceInstanceDetail `json:"instances"`
+	HostApplyConflictResolvers []HostApplyConflictResolver   `json:"host_apply_conflict_resolvers"`
+}
+
+type CreateServiceInstancePreviewInput struct {
+	BizID    int64   `json:"bk_biz_id"`
+	ModuleID int64   `json:"bk_module_id"`
+	HostIDs  []int64 `json:"bk_host_ids"`
 }
 
 type CreateRawProcessInstanceInput struct {
-	Metadata          Metadata                `json:"metadata"`
+	BizID             int64                   `json:"bk_biz_id"`
 	ServiceInstanceID int64                   `json:"service_instance_Id"`
 	Processes         []ProcessInstanceDetail `json:"processes"`
 }
 
 type UpdateRawProcessInstanceInput struct {
-	Metadata  Metadata  `json:"metadata"`
-	Processes []Process `json:"processes"`
+	BizID     int64                    `json:"bk_biz_id"`
+	Processes []Process                `json:"-"`
+	Raw       []map[string]interface{} `json:"processes"`
 }
 
 type DeleteProcessInstanceInServiceInstanceInput struct {
-	Metadata           Metadata `json:"metadata"`
-	ProcessInstanceIDs []int64  `json:"process_instance_ids"`
+	BizID              int64   `json:"bk_biz_id"`
+	ProcessInstanceIDs []int64 `json:"process_instance_ids"`
 }
 
 type GetServiceInstanceInModuleInput struct {
-	Metadata  Metadata           `json:"metadata"`
+	BizID     int64              `json:"bk_biz_id"`
 	ModuleID  int64              `json:"bk_module_id"`
+	HostIDs   []int64            `json:"bk_host_ids"`
 	Page      BasePage           `json:"page"`
-	SearchKey *string            `json:"search_key,omitempty"`
+	SearchKey *string            `json:"search_key"`
 	Selectors selector.Selectors `json:"selectors"`
 }
 
-type ListServiceInstanceDetailRequest struct {
-	Metadata           Metadata           `json:"metadata"`
-	SetID              int64              `json:"bk_set_id"`
-	ModuleID           int64              `json:"bk_module_id"`
-	HostID             int64              `json:"bk_host_id"`
-	ServiceInstanceIDs []int64            `json:"service_instance_ids"`
-	Page               BasePage           `json:"page,omitempty"`
-	Selectors          selector.Selectors `json:"selectors,omitempty"`
+type GetServiceInstanceBySetTemplateInput struct {
+	SetTemplateID int64    `json:"set_template_id"`
+	Page          BasePage `json:"page"`
 }
 
 type DiffModuleWithTemplateOption struct {
-	Metadata Metadata `json:"metadata"`
-	ModuleID int64    `json:"bk_module_id"`
+	BizID     int64   `json:"bk_biz_id"`
+	ModuleIDs []int64 `json:"bk_module_ids"`
+}
+
+type DiffOneModuleWithTemplateOption struct {
+	BizID    int64 `json:"bk_biz_id"`
+	ModuleID int64 `json:"bk_module_id"`
+}
+
+type UpdateServiceInstanceOption struct {
+	Data []OneUpdatedSrvInst `json:"data"`
+}
+
+type OneUpdatedSrvInst struct {
+	ServiceInstanceID int64                  `json:"service_instance_id"`
+	Update            map[string]interface{} `json:"update"`
+}
+
+func (o *UpdateServiceInstanceOption) Validate() (rawError cErr.RawErrorInfo) {
+	if len(o.Data) == 0 {
+		return cErr.RawErrorInfo{
+			ErrCode: common.CCErrCommParamsInvalid,
+			Args:    []interface{}{"data"},
+		}
+	}
+
+	for _, inst := range o.Data {
+		if inst.ServiceInstanceID <= 0 {
+			return cErr.RawErrorInfo{
+				ErrCode: common.CCErrCommParamsInvalid,
+				Args:    []interface{}{"data.service_instance_id must bigger than 0"},
+			}
+		}
+
+		// so far, only allow to update service instance name
+		if len(inst.Update) == 0 || len(inst.Update) > 1 {
+			return cErr.RawErrorInfo{
+				ErrCode: common.CCErrCommParamsInvalid,
+				Args:    []interface{}{"can only update service instance name"},
+			}
+		}
+
+		instName, ok := inst.Update[common.BKFieldName].(string)
+		if !ok {
+			return cErr.RawErrorInfo{
+				ErrCode: common.CCErrCommParamsInvalid,
+				Args:    []interface{}{"can only update service instance name"},
+			}
+		}
+		if len(instName) == 0 {
+			return cErr.RawErrorInfo{
+				ErrCode: common.CCErrCommParamsInvalid,
+				Args:    []interface{}{"service instance name can't be empty"},
+			}
+		}
+		if len(instName) > common.NameFieldMaxLength {
+			return cErr.RawErrorInfo{
+				ErrCode: common.CCErrCommParamsInvalid,
+				Args:    []interface{}{"service instance name is too long"},
+			}
+		}
+	}
+
+	return cErr.RawErrorInfo{}
 }
 
 type DeleteServiceInstanceOption struct {
-	Metadata           Metadata `json:"metadata"`
-	ServiceInstanceIDs []int64  `json:"service_instance_ids" field:"service_instance_ids" bson:"service_instance_ids"`
+	BizID              int64   `json:"bk_biz_id"`
+	ServiceInstanceIDs []int64 `json:"service_instance_ids" field:"service_instance_ids" bson:"service_instance_ids"`
+}
+
+type CoreDeleteServiceInstanceOption struct {
+	BizID              int64   `json:"bk_biz_id"`
+	ServiceInstanceIDs []int64 `json:"service_instance_ids" field:"service_instance_ids" bson:"service_instance_ids"`
 }
 
 type FindServiceAndProcessInstanceOption struct {
-	Metadata          Metadata `json:"metadata" field:"metadata" bson:"metadata"`
-	ModuleID          int64    `json:"bk_module_id" field:"bk_module_id" bson:"bk_module_id"`
-	ServiceTemplateID int64    `json:"service_template_id" field:"service_template_id" bson:"service_template_id"`
+	BizID             int64 `json:"bk_biz_id" field:"bk_biz_id" bson:"bk_biz_id"`
+	ModuleID          int64 `json:"bk_module_id" field:"bk_module_id" bson:"bk_module_id"`
+	ServiceTemplateID int64 `json:"service_template_id" field:"service_template_id" bson:"service_template_id"`
 }
 
 // to describe the differences between service instance and it's service template's
@@ -127,6 +200,7 @@ type FindServiceAndProcessInstanceOption struct {
 type ServiceProcessInstanceDifference struct {
 	ServiceInstanceID   int64             `json:"service_instance_id" field:"service_instance_id" bson:"service_instance_id"`
 	ServiceInstanceName string            `json:"service_instance_name" field:"service_instance_name" bson:"service_instance_name"`
+	BizID               int64             `json:"bk_biz_id" field:"bk_biz_id" bson:"bk_biz_id"`
 	HostID              int64             `json:"bk_host_id" field:"bk_host_id" bson:"bk_host_id"`
 	Differences         *DifferenceDetail `json:"differences" field:"differences" bson:"differences"`
 }
@@ -154,6 +228,7 @@ type ProcessChangedAttribute struct {
 
 // ModuleDiffWithTemplateDetail 模块与服务模板间的差异
 type ModuleDiffWithTemplateDetail struct {
+	ModuleID          int64                       `json:"bk_module_id"`
 	Unchanged         []ServiceInstanceDifference `json:"unchanged"`
 	Changed           []ServiceInstanceDifference `json:"changed"`
 	Added             []ServiceInstanceDifference `json:"added"`
@@ -182,54 +257,285 @@ type ServiceInstanceDifference struct {
 type ServiceDifferenceDetails struct {
 	ServiceInstance   ServiceInstance           `json:"service_instance"`
 	Process           *Process                  `json:"process"`
-	ChangedAttributes []ProcessChangedAttribute `json:"changed_attributes,omitempty"`
+	ChangedAttributes []ProcessChangedAttribute `json:"changed_attributes"`
+}
+
+type CreateServiceInstanceOption struct {
+	ModuleID int64 `json:"bk_module_id"`
+	HostID   int64 `json:"bk_host_id"`
+	// Processes parameter usable only when create instance with raw
+	Processes []ProcessCreateOrUpdateInfo `json:"processes"`
+}
+
+type ProcessCreateOrUpdateInfo struct {
+	// ProcessTemplateID indicate which process to update if service instance bound with a template
+	ProcessTemplateID int64                  `json:"process_template_id"`
+	ProcessInfo       map[string]interface{} `json:"process_info"`
 }
 
 type CreateServiceInstanceDetail struct {
-	HostID int64 `json:"bk_host_id"`
+	HostID              int64  `json:"bk_host_id"`
+	ServiceInstanceName string `json:"service_instance_name"`
 	// Processes parameter usable only when create instance with raw
 	Processes []ProcessInstanceDetail `json:"processes"`
 }
 
 type ProcessInstanceDetail struct {
-	// ProcessTemplateID int64   `json:"process_template_id"`
-	ProcessInfo Process `json:"process_info"`
+	// ProcessTemplateID indicate which process to update if service instance bound with a template
+	ProcessTemplateID int64                  `json:"process_template_id"`
+	ProcessData       map[string]interface{} `json:"process_info"`
 }
 
 type ListProcessTemplateWithServiceTemplateInput struct {
-	Metadata            Metadata `json:"metadata"`
+	BizID               int64    `json:"bk_biz_id"`
 	ProcessTemplatesIDs []int64  `json:"process_template_ids"`
 	ServiceTemplateID   int64    `json:"service_template_id"`
 	Page                BasePage `json:"page" field:"page" bson:"page"`
 }
 
+type UpdateProcessByIDsInput struct {
+	BizID      int64                  `json:"bk_biz_id"`
+	ProcessIDs []int64                `json:"process_ids"`
+	UpdateData map[string]interface{} `json:"update_data"`
+}
+
+// Validate validates the input param
+func (o *UpdateProcessByIDsInput) Validate() (rawError cErr.RawErrorInfo) {
+	if o.BizID <= 0 {
+		return cErr.RawErrorInfo{
+			ErrCode: common.CCErrCommParamsInvalid,
+			Args:    []interface{}{"bk_biz_id"},
+		}
+	}
+
+	if len(o.ProcessIDs) == 0 {
+		return cErr.RawErrorInfo{
+			ErrCode: common.CCErrCommParamsInvalid,
+			Args:    []interface{}{"process_ids"},
+		}
+	}
+
+	if len(o.ProcessIDs) > common.BKMaxPageSize {
+		return cErr.RawErrorInfo{
+			ErrCode: common.CCErrExceedMaxOperationRecordsAtOnce,
+			Args:    []interface{}{common.BKMaxPageSize},
+		}
+	}
+
+	if len(o.UpdateData) == 0 {
+		return cErr.RawErrorInfo{
+			ErrCode: common.CCErrCommParamsInvalid,
+			Args:    []interface{}{"update_data"},
+		}
+	}
+
+	if _, ok := o.UpdateData[common.BKProcessIDField]; ok {
+		return cErr.RawErrorInfo{
+			ErrCode: common.CCErrCommParamsInvalid,
+			Args:    []interface{}{"update_data.bk_process_id"},
+		}
+	}
+
+	return cErr.RawErrorInfo{}
+}
+
 type SyncServiceInstanceByTemplateOption struct {
-	Metadata Metadata `json:"metadata"`
-	ModuleID int64    `json:"bk_module_id"`
+	BizID     int64   `json:"bk_biz_id"`
+	ModuleIDs []int64 `json:"bk_module_ids"`
+}
+
+// 用于同步单个模块的服务实例
+type SyncModuleServiceInstanceByTemplateOption struct {
+	BizID    int64 `json:"bk_biz_id"`
+	ModuleID int64 `json:"bk_module_id"`
 }
 
 type ListServiceInstancesWithHostInput struct {
-	Metadata  Metadata           `json:"metadata"`
+	BizID     int64              `json:"bk_biz_id"`
 	HostID    int64              `json:"bk_host_id"`
-	SearchKey *string            `json:"search_key,omitempty"`
-	Selectors selector.Selectors `json:"selectors,omitempty"`
-	Page      BasePage           `json:"page,omitempty"`
+	SearchKey *string            `json:"search_key"`
+	Selectors selector.Selectors `json:"selectors"`
+	Page      BasePage           `json:"page"`
 }
 
 type ListProcessInstancesOption struct {
-	Metadata          Metadata `json:"metadata"`
-	ServiceInstanceID int64    `json:"service_instance_id"`
+	BizID             int64 `json:"bk_biz_id"`
+	ServiceInstanceID int64 `json:"service_instance_id"`
+}
+
+type ListProcessInstancesWithHostOption struct {
+	BizID   int64    `json:"bk_biz_id"`
+	HostIDs []int64  `json:"bk_host_ids"`
+	Page    BasePage `json:"page"`
+}
+
+type ListProcessInstancesNameIDsOption struct {
+	BizID       int64    `json:"bk_biz_id"`
+	ModuleID    int64    `json:"bk_module_id"`
+	ProcessName string   `json:"process_name"`
+	Page        BasePage `json:"page"`
+}
+
+// Validate validates the input param
+func (o *ListProcessInstancesNameIDsOption) Validate() (rawError cErr.RawErrorInfo) {
+	if o.BizID <= 0 {
+		return cErr.RawErrorInfo{
+			ErrCode: common.CCErrCommParamsInvalid,
+			Args:    []interface{}{"bk_biz_id"},
+		}
+	}
+
+	if o.ModuleID <= 0 {
+		return cErr.RawErrorInfo{
+			ErrCode: common.CCErrCommParamsInvalid,
+			Args:    []interface{}{"bk_module_id"},
+		}
+	}
+
+	if o.Page.IsIllegal() {
+		return cErr.RawErrorInfo{
+			ErrCode: common.CCErrCommParamsInvalid,
+			Args:    []interface{}{"page.limit"},
+		}
+	}
+
+	return cErr.RawErrorInfo{}
+}
+
+// ListProcessRelatedInfoOption is the input param for api ListProcessRelatedInfo
+type ListProcessRelatedInfoOption struct {
+	Set             SetCondOfP             `json:"set"`
+	Module          ModuleCondOfP          `json:"module"`
+	ServiceInstance ServiceInstanceCondOfP `json:"service_instance"`
+	Process         ProcessCondOfP         `json:"process"`
+	Fields          []string               `json:"fields"`
+	Page            BasePage               `json:"page"`
+}
+
+type SetCondOfP struct {
+	SetIDs []int64 `json:"bk_set_ids"`
+}
+
+type ModuleCondOfP struct {
+	ModuleIDs []int64 `json:"bk_module_ids"`
+}
+
+type ServiceInstanceCondOfP struct {
+	IDs []int64 `json:"ids"`
+}
+
+type ProcessCondOfP struct {
+	ProcessNames []string `json:"bk_process_names"`
+	FuncIDs      []string `json:"bk_func_ids"`
+	ProcessIDs   []int64  `json:"bk_process_ids"`
+}
+
+// Validate validates the input param
+func (o *ListProcessRelatedInfoOption) Validate() (rawError cErr.RawErrorInfo) {
+	if o.Page.IsIllegal() {
+		return cErr.RawErrorInfo{
+			ErrCode: common.CCErrCommParamsInvalid,
+			Args:    []interface{}{"page.limit"},
+		}
+	}
+
+	return cErr.RawErrorInfo{}
+}
+
+// ListProcessRelatedInfoResult is the result for api ListProcessRelatedInfo
+type ListProcessRelatedInfoResult struct {
+	Set             SetDetailOfP             `json:"set"`
+	Module          ModuleDetailOfP          `json:"module"`
+	Host            HostDetailOfP            `json:"host"`
+	ServiceInstance ServiceInstanceDetailOfP `json:"service_instance"`
+	ProcessTemplate ProcessTemplateDetailOfP `json:"process_template"`
+	Process         interface{}              `json:"process"`
+}
+
+type SetDetailOfP struct {
+	SetID   int64  `json:"bk_set_id"`
+	SetName string `json:"bk_set_name"`
+	SetEnv  string `json:"bk_set_env"`
+}
+
+type ModuleDetailOfP struct {
+	ModuleID   int64  `json:"bk_module_id"`
+	ModuleName string `json:"bk_module_name"`
+}
+
+type HostDetailOfP struct {
+	HostID  int64  `json:"bk_host_id"`
+	CloudID int64  `json:"bk_cloud_id"`
+	InnerIP string `json:"bk_host_innerip"`
+}
+
+type ServiceInstanceDetailOfP struct {
+	ID   int64  `json:"id"`
+	Name string `json:"name"`
+}
+
+type ProcessTemplateDetailOfP struct {
+	ID int64 `json:"id"`
+}
+
+type ListProcessInstancesDetailsOption struct {
+	ProcessIDs []int64  `json:"bk_process_ids"`
+	Fields     []string `json:"fields"`
+}
+
+// Validate validates the input param
+func (o *ListProcessInstancesDetailsOption) Validate() (rawError cErr.RawErrorInfo) {
+	if len(o.ProcessIDs) == 0 || len(o.ProcessIDs) > common.BKMaxInstanceLimit {
+		return cErr.RawErrorInfo{
+			ErrCode: common.CCErrArrayLengthWrong,
+			Args:    []interface{}{"bk_process_ids", common.BKMaxInstanceLimit},
+		}
+	}
+
+	return cErr.RawErrorInfo{}
+}
+
+type ListProcessInstancesDetailsByIDsOption struct {
+	BizID      int64    `json:"bk_biz_id"`
+	ProcessIDs []int64  `json:"process_ids"`
+	Page       BasePage `json:"page"`
+}
+
+// Validate validates the input param
+func (o *ListProcessInstancesDetailsByIDsOption) Validate() (rawError cErr.RawErrorInfo) {
+	if o.BizID <= 0 {
+		return cErr.RawErrorInfo{
+			ErrCode: common.CCErrCommParamsInvalid,
+			Args:    []interface{}{"bk_biz_id"},
+		}
+	}
+
+	if len(o.ProcessIDs) == 0 {
+		return cErr.RawErrorInfo{
+			ErrCode: common.CCErrCommParamsInvalid,
+			Args:    []interface{}{"process_ids"},
+		}
+	}
+
+	if o.Page.IsIllegal() {
+		return cErr.RawErrorInfo{
+			ErrCode: common.CCErrCommParamsInvalid,
+			Args:    []interface{}{"page.limit"},
+		}
+	}
+
+	return cErr.RawErrorInfo{}
 }
 
 type RemoveTemplateBindingOnModuleOption struct {
-	Metadata Metadata `json:"metadata"`
-	ModuleID int64    `json:"bk_module_id"`
+	BizID    int64 `json:"bk_biz_id"`
+	ModuleID int64 `json:"bk_module_id"`
 }
 
 type UpdateProcessTemplateInput struct {
-	Metadata          Metadata         `json:"metadata"`
-	ProcessTemplateID int64            `json:"process_template_id"`
-	ProcessProperty   *ProcessProperty `json:"process_property"`
+	BizID             int64                  `json:"bk_biz_id"`
+	ProcessTemplateID int64                  `json:"process_template_id"`
+	Property          map[string]interface{} `json:"process_property"`
 }
 
 type SocketBindType string
@@ -238,22 +544,57 @@ const (
 	BindLocalHost SocketBindType = "1"
 	BindAll       SocketBindType = "2"
 	BindInnerIP   SocketBindType = "3"
-	BindOtterIP   SocketBindType = "4"
+	BindOuterIP   SocketBindType = "4"
 )
 
-func (p *SocketBindType) IP() string {
-	// TODO: support BindInnerIP and BindOtterIP
+func (p *SocketBindType) NeedIPFromHost() bool {
+	if p == nil {
+		return false
+	}
+
+	switch *p {
+	case BindInnerIP, BindOuterIP:
+		return true
+	default:
+		return false
+	}
+}
+
+func (p *SocketBindType) IP(host map[string]interface{}) string {
 	if p == nil {
 		return ""
 	}
+
+	var ip string
+
 	switch *p {
 	case BindLocalHost:
 		return "127.0.0.1"
 	case BindAll:
 		return "0.0.0.0"
+	case BindInnerIP:
+		if host == nil {
+			return ""
+		}
+		ip = util.GetStrByInterface(host[common.BKHostInnerIPField])
+	case BindOuterIP:
+		if host == nil {
+			return ""
+		}
+		ip = util.GetStrByInterface(host[common.BKHostOuterIPField])
 	default:
 		return ""
 	}
+
+	if ip == "" {
+		return "127.0.0.1"
+	}
+
+	index := strings.Index(strings.Trim(ip, ","), ",")
+	if index == -1 {
+		return ip
+	}
+	return ip[:index]
 }
 
 func (p *SocketBindType) String() string {
@@ -268,7 +609,7 @@ func (p *SocketBindType) String() string {
 		return "0.0.0.0"
 	case BindInnerIP:
 		return "第一内网IP"
-	case BindOtterIP:
+	case BindOuterIP:
 		return "第一外网IP"
 	default:
 		return ""
@@ -276,8 +617,7 @@ func (p *SocketBindType) String() string {
 }
 
 func (p SocketBindType) Validate() error {
-	// validValues := []SocketBindType{BindLocalHost, BindAll, BindInnerIP, BindOtterIP}
-	validValues := []SocketBindType{BindLocalHost, BindAll}
+	validValues := []SocketBindType{BindLocalHost, BindAll, BindInnerIP, BindOuterIP}
 	if util.InArray(p, validValues) == false {
 		return fmt.Errorf("invalid socket bind type, value: %s, available values: %+v", p, validValues)
 	}
@@ -311,44 +651,74 @@ func (p ProtocolType) Validate() error {
 }
 
 type Process struct {
-	Metadata        Metadata      `field:"metadata" json:"metadata" bson:"metadata" structs:"metadata"`
-	ProcNum         *int64        `field:"proc_num" json:"proc_num,omitempty" bson:"proc_num" structs:"proc_num"`
-	StopCmd         *string       `field:"stop_cmd" json:"stop_cmd,omitempty" bson:"stop_cmd" structs:"stop_cmd"`
-	RestartCmd      *string       `field:"restart_cmd" json:"restart_cmd,omitempty" bson:"restart_cmd" structs:"restart_cmd"`
-	ForceStopCmd    *string       `field:"face_stop_cmd" json:"face_stop_cmd,omitempty" bson:"face_stop_cmd" structs:"face_stop_cmd"`
-	ProcessID       int64         `field:"bk_process_id" json:"bk_process_id,omitempty" bson:"bk_process_id" structs:"bk_process_id"`
-	FuncName        *string       `field:"bk_func_name" json:"bk_func_name,omitempty" bson:"bk_func_name" structs:"bk_func_name"`
-	WorkPath        *string       `field:"work_path" json:"work_path,omitempty" bson:"work_path" structs:"work_path"`
-	BindIP          *string       `field:"bind_ip" json:"bind_ip,omitempty" bson:"bind_ip" structs:"bind_ip"`
-	Priority        *int64        `field:"priority" json:"priority,omitempty" bson:"priority" structs:"priority"`
-	ReloadCmd       *string       `field:"reload_cmd" json:"reload_cmd,omitempty" bson:"reload_cmd" structs:"reload_cmd"`
-	ProcessName     *string       `field:"bk_process_name" json:"bk_process_name,omitempty" bson:"bk_process_name" structs:"bk_process_name"`
-	Port            *string       `field:"port" json:"port,omitempty" bson:"port" structs:"port"`
-	PidFile         *string       `field:"pid_file" json:"pid_file,omitempty" bson:"pid_file" structs:"pid_file"`
-	AutoStart       *bool         `field:"auto_start" json:"auto_start,omitempty" bson:"auto_start" structs:"auto_start"`
-	AutoTimeGap     *int64        `field:"auto_time_gap" json:"auto_time_gap,omitempty" bson:"auto_time_gap" structs:"auto_time_gap"`
-	LastTime        time.Time     `field:"last_time" json:"last_time,omitempty" bson:"last_time" structs:"last_time"`
-	CreateTime      time.Time     `field:"create_time" json:"create_time,omitempty" bson:"create_time" structs:"create_time"`
-	BusinessID      int64         `field:"bk_biz_id" json:"bk_biz_id,omitempty" bson:"bk_biz_id" structs:"bk_biz_id"`
-	StartCmd        *string       `field:"start_cmd" json:"start_cmd,omitempty" bson:"start_cmd" structs:"start_cmd"`
-	FuncID          *string       `field:"bk_func_id" json:"bk_func_id,omitempty" bson:"bk_func_id" structs:"bk_func_id"`
-	User            *string       `field:"user" json:"user,omitempty" bson:"user" structs:"user"`
-	TimeoutSeconds  *int64        `field:"timeout" json:"timeout,omitempty" bson:"timeout" structs:"timeout"`
-	Protocol        *ProtocolType `field:"protocol" json:"protocol,omitempty" bson:"protocol" structs:"protocol"`
-	Description     *string       `field:"description" json:"description,omitempty" bson:"description" structs:"description"`
-	SupplierAccount string        `field:"bk_supplier_account" json:"bk_supplier_account,omitempty" bson:"bk_supplier_account" structs:"bk_supplier_account"`
-	StartParamRegex *string       `field:"bk_start_param_regex" json:"bk_start_param_regex,omitempty" bson:"bk_start_param_regex,omitempty" structs:"bk_start_param_regex"`
+	ProcNum         *int64         `field:"proc_num" json:"proc_num" bson:"proc_num" structs:"proc_num" mapstructure:"proc_num"`
+	StopCmd         *string        `field:"stop_cmd" json:"stop_cmd" bson:"stop_cmd" structs:"stop_cmd" mapstructure:"stop_cmd"`
+	RestartCmd      *string        `field:"restart_cmd" json:"restart_cmd" bson:"restart_cmd" structs:"restart_cmd" mapstructure:"restart_cmd"`
+	ForceStopCmd    *string        `field:"face_stop_cmd" json:"face_stop_cmd" bson:"face_stop_cmd" structs:"face_stop_cmd" mapstructure:"face_stop_cmd"`
+	ProcessID       int64          `field:"bk_process_id" json:"bk_process_id" bson:"bk_process_id" structs:"bk_process_id" mapstructure:"bk_process_id"`
+	FuncName        *string        `field:"bk_func_name" json:"bk_func_name" bson:"bk_func_name" structs:"bk_func_name" mapstructure:"bk_func_name"`
+	WorkPath        *string        `field:"work_path" json:"work_path" bson:"work_path" structs:"work_path" mapstructure:"work_path"`
+	Priority        *int64         `field:"priority" json:"priority" bson:"priority" structs:"priority" mapstructure:"priority"`
+	ReloadCmd       *string        `field:"reload_cmd" json:"reload_cmd" bson:"reload_cmd" structs:"reload_cmd" mapstructure:"reload_cmd"`
+	ProcessName     *string        `field:"bk_process_name" json:"bk_process_name" bson:"bk_process_name" structs:"bk_process_name" mapstructure:"bk_process_name"`
+	PidFile         *string        `field:"pid_file" json:"pid_file" bson:"pid_file" structs:"pid_file" mapstructure:"pid_file"`
+	AutoStart       *bool          `field:"auto_start" json:"auto_start" bson:"auto_start" structs:"auto_start" mapstructure:"auto_start"`
+	StartCheckSecs  *int64         `field:"bk_start_check_secs" json:"bk_start_check_secs" bson:"bk_start_check_secs" structs:"bk_start_check_secs" mapstructure:"bk_start_check_secs"`
+	LastTime        time.Time      `field:"last_time" json:"last_time" bson:"last_time" structs:"last_time" mapstructure:"last_time"`
+	CreateTime      time.Time      `field:"create_time" json:"create_time" bson:"create_time" structs:"create_time" mapstructure:"create_time"`
+	BusinessID      int64          `field:"bk_biz_id" json:"bk_biz_id" bson:"bk_biz_id" structs:"bk_biz_id" mapstructure:"bk_biz_id"`
+	StartCmd        *string        `field:"start_cmd" json:"start_cmd" bson:"start_cmd" structs:"start_cmd" mapstructure:"start_cmd"`
+	User            *string        `field:"user" json:"user" bson:"user" structs:"user" mapstructure:"user"`
+	TimeoutSeconds  *int64         `field:"timeout" json:"timeout" bson:"timeout" structs:"timeout" mapstructure:"timeout"`
+	Description     *string        `field:"description" json:"description" bson:"description" structs:"description" mapstructure:"description"`
+	SupplierAccount string         `field:"bk_supplier_account" json:"bk_supplier_account" bson:"bk_supplier_account" structs:"bk_supplier_account" mapstructure:"bk_supplier_account"`
+	StartParamRegex *string        `field:"bk_start_param_regex" json:"bk_start_param_regex" bson:"bk_start_param_regex" structs:"bk_start_param_regex" mapstructure:"bk_start_param_regex"`
+	BindInfo        []ProcBindInfo `field:"bind_info" json:"bind_info" bson:"bind_info" structs:"bind_info" mapstructure:"bind_info"`
+}
+
+func (p *Process) Map() map[string]interface{} {
+	var bindInfoArr []map[string]interface{}
+	for _, row := range p.BindInfo {
+		bindInfoArr = append(bindInfoArr, row.toKV())
+	}
+	procMap := map[string]interface{}{
+		common.BKProcInstNum:      p.ProcNum,
+		common.BKProcStopCmd:      p.StopCmd,
+		common.BKProcRestartCmd:   p.RestartCmd,
+		"face_stop_cmd":           p.ForceStopCmd,
+		common.BKProcessIDField:   p.ProcessID,
+		common.BKFuncName:         p.FuncName,
+		common.BKWorkPath:         p.WorkPath,
+		"priority":                p.Priority,
+		common.BKProcReloadCmd:    p.ReloadCmd,
+		common.BKProcessNameField: p.ProcessName,
+		common.BKProcPidFile:      p.PidFile,
+		"auto_start":              p.AutoStart,
+		"bk_start_check_secs":     p.StartCheckSecs,
+		common.BKAppIDField:       p.BusinessID,
+		common.BKProcStartCmd:     p.StartCmd,
+		common.BKUser:             p.User,
+		common.BKProcTimeOut:      p.TimeoutSeconds,
+		common.BKDescriptionField: p.Description,
+		common.BKOwnerIDField:     p.SupplierAccount,
+		common.BKStartParamRegex:  p.StartParamRegex,
+		common.BKProcBindInfo:     bindInfoArr,
+		common.CreateTimeField:    p.CreateTime,
+		common.LastTimeField:      p.LastTime,
+	}
+
+	return procMap
 }
 
 type ServiceCategory struct {
-	Metadata Metadata `field:"metadata" json:"metadata" bson:"metadata"`
+	BizID int64 `field:"bk_biz_id" json:"bk_biz_id" bson:"bk_biz_id"`
 
-	ID   int64  `field:"id" json:"id,omitempty" bson:"id"`
-	Name string `field:"name" json:"name,omitempty" bson:"name"`
+	ID   int64  `field:"id" json:"id" bson:"id"`
+	Name string `field:"name" json:"name" bson:"name"`
 
-	RootID          int64  `field:"bk_root_id" json:"bk_root_id,omitempty" bson:"bk_root_id"`
-	ParentID        int64  `field:"bk_parent_id" json:"bk_parent_id,omitempty" bson:"bk_parent_id"`
-	SupplierAccount string `field:"bk_supplier_account" json:"bk_supplier_account,omitempty" bson:"bk_supplier_account"`
+	RootID          int64  `field:"bk_root_id" json:"bk_root_id" bson:"bk_root_id"`
+	ParentID        int64  `field:"bk_parent_id" json:"bk_parent_id" bson:"bk_parent_id"`
+	SupplierAccount string `field:"bk_supplier_account" json:"bk_supplier_account" bson:"bk_supplier_account"`
 
 	// IsBuiltIn indicates internal system service category, which shouldn't be modified.
 	IsBuiltIn bool `field:"is_built_in" json:"is_built_in" bson:"is_built_in"`
@@ -358,9 +728,15 @@ func (sc *ServiceCategory) Validate() (field string, err error) {
 	if len(sc.Name) == 0 {
 		return "name", errors.New("name can't be empty")
 	}
-
-	if len(sc.Name) > common.NameFieldMaxLength {
-		return "name", fmt.Errorf("name too long, input: %d > max: %d", len(sc.Name), common.NameFieldMaxLength)
+	if common.ServiceCategoryMaxLength < utf8.RuneCountInString(sc.Name) {
+		return "name", fmt.Errorf("name too long, input: %d > max: %d", utf8.RuneCountInString(sc.Name), common.ServiceCategoryMaxLength)
+	}
+	match, err := regexp.MatchString(common.FieldTypeServiceCategoryRegexp, sc.Name)
+	if nil != err {
+		return "name", err
+	}
+	if !match {
+		return "name", fmt.Errorf("name not match regex, input: %s", sc.Name)
 	}
 	return "", nil
 }
@@ -370,28 +746,33 @@ type ServiceCategoryWithStatistics struct {
 	UsageAmount     int64           `field:"usage_amount" json:"usage_amount" bson:"usage_amount"`
 }
 
-type ServiceTemplateDetail struct {
+type ServiceTemplateWithStatistics struct {
 	Template             ServiceTemplate `field:"template" json:"template" bson:"template"`
 	ServiceInstanceCount int64           `field:"service_instance_count" json:"service_instance_count" bson:"service_instance_count"`
 	ProcessInstanceCount int64           `field:"process_instance_count" json:"process_instance_count" bson:"process_instance_count"`
 }
 
-type ServiceTemplate struct {
-	Metadata Metadata `field:"metadata" json:"metadata" bson:"metadata"`
+type ServiceTemplateDetail struct {
+	ServiceTemplate  ServiceTemplate   `field:"service_template" json:"service_template" bson:"service_template" mapstructure:"service_template"`
+	ProcessTemplates []ProcessTemplate `field:"process_templates" json:"process_templates" bson:"process_templates" mapstructure:"process_templates"`
+}
 
-	ID int64 `field:"id" json:"id,omitempty" bson:"id"`
+type ServiceTemplate struct {
+	BizID int64 `field:"bk_biz_id" json:"bk_biz_id" bson:"bk_biz_id"`
+
+	ID int64 `field:"id" json:"id" bson:"id"`
 	// name of this service, can not be empty
-	Name string `field:"name" json:"name,omitempty" bson:"name"`
+	Name string `field:"name" json:"name" bson:"name"`
 
 	// the class of this service, each field means a class label.
 	// now, the class must have two labels.
-	ServiceCategoryID int64 `field:"service_category_id" json:"service_category_id,omitempty" bson:"service_category_id"`
+	ServiceCategoryID int64 `field:"service_category_id" json:"service_category_id" bson:"service_category_id"`
 
-	Creator         string    `field:"creator" json:"creator,omitempty" bson:"creator"`
-	Modifier        string    `field:"modifier" json:"modifier,omitempty" bson:"modifier"`
-	CreateTime      time.Time `field:"create_time" json:"create_time,omitempty" bson:"create_time"`
-	LastTime        time.Time `field:"last_time" json:"last_time,omitempty" bson:"last_time"`
-	SupplierAccount string    `field:"bk_supplier_account" json:"bk_supplier_account,omitempty" bson:"bk_supplier_account"`
+	Creator         string    `field:"creator" json:"creator" bson:"creator"`
+	Modifier        string    `field:"modifier" json:"modifier" bson:"modifier"`
+	CreateTime      time.Time `field:"create_time" json:"create_time" bson:"create_time"`
+	LastTime        time.Time `field:"last_time" json:"last_time" bson:"last_time"`
+	SupplierAccount string    `field:"bk_supplier_account" json:"bk_supplier_account" bson:"bk_supplier_account"`
 }
 
 func (st *ServiceTemplate) Validate() (field string, err error) {
@@ -407,21 +788,21 @@ func (st *ServiceTemplate) Validate() (field string, err error) {
 
 // this works for the process instance which is used for a template.
 type ProcessTemplate struct {
-	ID          int64    `field:"id" json:"id,omitempty" bson:"id"`
-	ProcessName string   `field:"bk_process_name" json:"bk_process_name" bson:"bk_process_name"`
-	Metadata    Metadata `field:"metadata" json:"metadata" bson:"metadata"`
+	ID          int64  `field:"id" json:"id" bson:"id"`
+	ProcessName string `field:"bk_process_name" json:"bk_process_name" bson:"bk_process_name"`
+	BizID       int64  `field:"bk_biz_id" json:"bk_biz_id" bson:"bk_biz_id"`
 	// the service template's, which this process template belongs to.
 	ServiceTemplateID int64 `field:"service_template_id" json:"service_template_id" bson:"service_template_id"`
 
 	// stores a process instance's data includes all the process's
 	// properties's value.
-	Property *ProcessProperty `field:"property" json:"property,omitempty" bson:"property"`
+	Property *ProcessProperty `field:"property" json:"property" bson:"property"`
 
-	Creator         string    `field:"creator" json:"creator,omitempty" bson:"creator"`
-	Modifier        string    `field:"modifier" json:"modifier,omitempty" bson:"modifier"`
-	CreateTime      time.Time `field:"create_time" json:"create_time,omitempty" bson:"create_time"`
-	LastTime        time.Time `field:"last_time" json:"last_time,omitempty" bson:"last_time"`
-	SupplierAccount string    `field:"bk_supplier_account" json:"bk_supplier_account,omitempty" bson:"bk_supplier_account"`
+	Creator         string    `field:"creator" json:"creator" bson:"creator"`
+	Modifier        string    `field:"modifier" json:"modifier" bson:"modifier"`
+	CreateTime      time.Time `field:"create_time" json:"create_time" bson:"create_time"`
+	LastTime        time.Time `field:"last_time" json:"last_time" bson:"last_time"`
+	SupplierAccount string    `field:"bk_supplier_account" json:"bk_supplier_account" bson:"bk_supplier_account"`
 }
 
 func (pt *ProcessTemplate) Validate() (field string, err error) {
@@ -442,44 +823,153 @@ func IsAsDefaultValue(asDefaultValue *bool) bool {
 	return false
 }
 
-func (pt *ProcessTemplate) NewProcess(bizID int64, supplierAccount string) *Process {
+func (pt *ProcessTemplate) NewProcess(bizID int64, supplierAccount string, host map[string]interface{}) *Process {
 	now := time.Now()
 	processInstance := &Process{
 		LastTime:        now,
 		CreateTime:      now,
 		BusinessID:      bizID,
-		Metadata:        NewMetaDataFromBusinessID(strconv.FormatInt(bizID, 10)),
 		SupplierAccount: supplierAccount,
 	}
 
 	property := pt.Property
-	processInstance.ProcessName = property.ProcessName.Value
-	processInstance.ProcNum = property.ProcNum.Value
-	processInstance.StopCmd = property.StopCmd.Value
-	processInstance.RestartCmd = property.RestartCmd.Value
-	processInstance.ForceStopCmd = property.ForceStopCmd.Value
-	processInstance.FuncName = property.FuncName.Value
-	processInstance.WorkPath = property.WorkPath.Value
-	processInstance.BindIP = new(string)
-	*processInstance.BindIP = property.BindIP.Value.IP()
-	processInstance.Priority = property.Priority.Value
-	processInstance.ReloadCmd = property.ReloadCmd.Value
-	processInstance.Port = property.Port.Value
-	processInstance.PidFile = property.PidFile.Value
-	processInstance.AutoStart = property.AutoStart.Value
-	processInstance.AutoTimeGap = property.AutoTimeGapSeconds.Value
-	processInstance.StartCmd = property.StartCmd.Value
-	processInstance.FuncID = property.FuncID.Value
-	processInstance.User = property.User.Value
-	processInstance.TimeoutSeconds = property.TimeoutSeconds.Value
-	processInstance.Protocol = property.Protocol.Value
-	processInstance.Description = property.Description.Value
-	processInstance.StartParamRegex = property.StartParamRegex.Value
+
+	processName := ""
+	processInstance.ProcessName = &processName
+	if IsAsDefaultValue(property.ProcessName.AsDefaultValue) {
+		processInstance.ProcessName = property.ProcessName.Value
+	}
+
+	processInstance.ProcNum = nil
+	if IsAsDefaultValue(property.ProcNum.AsDefaultValue) {
+		processInstance.ProcNum = property.ProcNum.Value
+	}
+
+	processInstance.StopCmd = nil
+	if IsAsDefaultValue(property.StopCmd.AsDefaultValue) {
+		processInstance.StopCmd = property.StopCmd.Value
+	}
+
+	processInstance.RestartCmd = nil
+	if IsAsDefaultValue(property.RestartCmd.AsDefaultValue) {
+		processInstance.RestartCmd = property.RestartCmd.Value
+	}
+
+	processInstance.ForceStopCmd = nil
+	if IsAsDefaultValue(property.ForceStopCmd.AsDefaultValue) {
+		processInstance.ForceStopCmd = property.ForceStopCmd.Value
+	}
+
+	processInstance.FuncName = nil
+	if IsAsDefaultValue(property.FuncName.AsDefaultValue) {
+		processInstance.FuncName = property.FuncName.Value
+	}
+
+	processInstance.WorkPath = nil
+	if IsAsDefaultValue(property.WorkPath.AsDefaultValue) {
+		processInstance.WorkPath = property.WorkPath.Value
+	}
+
+	processInstance.Priority = nil
+	if IsAsDefaultValue(property.Priority.AsDefaultValue) {
+		processInstance.Priority = property.Priority.Value
+	}
+
+	processInstance.ReloadCmd = nil
+	if IsAsDefaultValue(property.ReloadCmd.AsDefaultValue) {
+		processInstance.ReloadCmd = property.ReloadCmd.Value
+	}
+
+	processInstance.PidFile = nil
+	if IsAsDefaultValue(property.PidFile.AsDefaultValue) {
+		processInstance.PidFile = property.PidFile.Value
+	}
+
+	processInstance.AutoStart = nil
+	if IsAsDefaultValue(property.AutoStart.AsDefaultValue) {
+		processInstance.AutoStart = property.AutoStart.Value
+	}
+
+	processInstance.StartCheckSecs = nil
+	if IsAsDefaultValue(property.StartCheckSecs.AsDefaultValue) {
+		processInstance.StartCheckSecs = property.StartCheckSecs.Value
+	}
+
+	processInstance.StartCmd = nil
+	if IsAsDefaultValue(property.StartCmd.AsDefaultValue) {
+		processInstance.StartCmd = property.StartCmd.Value
+	}
+
+	processInstance.User = nil
+	if IsAsDefaultValue(property.User.AsDefaultValue) {
+		processInstance.User = property.User.Value
+	}
+
+	processInstance.TimeoutSeconds = nil
+	if IsAsDefaultValue(property.TimeoutSeconds.AsDefaultValue) {
+		processInstance.TimeoutSeconds = property.TimeoutSeconds.Value
+	}
+
+	processInstance.Description = nil
+	if IsAsDefaultValue(property.Description.AsDefaultValue) {
+		processInstance.Description = property.Description.Value
+	}
+
+	processInstance.StartParamRegex = nil
+	if IsAsDefaultValue(property.StartParamRegex.AsDefaultValue) {
+		processInstance.StartParamRegex = property.StartParamRegex.Value
+	}
+
+	processInstance.BindInfo = property.BindInfo.NewProcBindInfo(host)
+
 	return processInstance
 }
 
+func FilterValidFields(fields []string) []string {
+	allFields := GetAllProcessPropertyFields()
+
+	result := make([]string, 0)
+	for _, field := range fields {
+		if util.InStrArr(allFields, field) {
+			result = append(result, field)
+		}
+	}
+	return result
+}
+
+func GetAllProcessPropertyFields() []string {
+	fields := make([]string, 0)
+	fields = append(fields, "bk_func_name")
+	fields = append(fields, "bk_process_name")
+	fields = append(fields, "bk_start_param_regex")
+	fields = append(fields, "bk_start_check_secs")
+	fields = append(fields, "user")
+	fields = append(fields, "stop_cmd")
+	fields = append(fields, "proc_num")
+	fields = append(fields, "port")
+	fields = append(fields, "description")
+	fields = append(fields, "protocol")
+	fields = append(fields, "timeout")
+	fields = append(fields, "auto_start")
+	fields = append(fields, "pid_file")
+	fields = append(fields, "reload_cmd")
+	fields = append(fields, "restart_cmd")
+	fields = append(fields, "face_stop_cmd")
+	fields = append(fields, "work_path")
+	fields = append(fields, "bind_ip")
+	fields = append(fields, "priority")
+	fields = append(fields, "start_cmd")
+	fields = append(fields, common.BKProcPortEnable)
+	fields = append(fields, "bk_gateway_ip")
+	fields = append(fields, "bk_gateway_port")
+	fields = append(fields, "bk_gateway_protocol")
+	fields = append(fields, "bk_gateway_city")
+
+	return fields
+}
+
 // ExtractChangeInfo get changes that will be applied to process instance
-func (pt *ProcessTemplate) ExtractChangeInfo(i *Process) (mapstr.MapStr, bool) {
+func (pt *ProcessTemplate) ExtractChangeInfo(i *Process, host map[string]interface{}) (mapstr.MapStr, bool) {
 	t := pt.Property
 	var changed bool
 	if t == nil || i == nil {
@@ -565,32 +1055,6 @@ func (pt *ProcessTemplate) ExtractChangeInfo(i *Process) (mapstr.MapStr, bool) {
 		}
 	}
 
-	if IsAsDefaultValue(t.BindIP.AsDefaultValue) {
-		if t.BindIP.Value == nil && i.BindIP != nil {
-			process["bind_ip"] = nil
-			changed = true
-		} else if t.BindIP.Value != nil && i.BindIP == nil {
-			process["bind_ip"] = *t.BindIP.Value
-			changed = true
-		} else if t.BindIP.Value != nil && i.BindIP != nil && t.BindIP.Value.IP() != *i.BindIP {
-			process["bind_ip"] = t.BindIP.Value.IP()
-			changed = true
-		}
-	}
-
-	if IsAsDefaultValue(t.Priority.AsDefaultValue) {
-		if t.Priority.Value != nil && i.Priority == nil {
-			process["priority"] = *t.Priority.Value
-			changed = true
-		} else if t.Priority.Value == nil && i.Priority != nil {
-			process["priority"] = nil
-			changed = true
-		} else if t.Priority.Value != nil && i.Priority != nil && *t.Priority.Value != *i.Priority {
-			process["priority"] = *t.Priority.Value
-			changed = true
-		}
-	}
-
 	if IsAsDefaultValue(t.ReloadCmd.AsDefaultValue) {
 		if t.ReloadCmd.Value == nil && i.ReloadCmd != nil {
 			process["reload_cmd"] = nil
@@ -617,32 +1081,6 @@ func (pt *ProcessTemplate) ExtractChangeInfo(i *Process) (mapstr.MapStr, bool) {
 		}
 	}
 
-	if IsAsDefaultValue(t.Port.AsDefaultValue) {
-		if t.Port.Value == nil && i.Port != nil {
-			process["port"] = nil
-			changed = true
-		} else if t.Port.Value != nil && i.Port == nil {
-			process["port"] = *t.Port.Value
-			changed = true
-		} else if t.Port.Value != nil && i.Port != nil && *t.Port.Value != *i.Port {
-			process["port"] = *t.Port.Value
-			changed = true
-		}
-	}
-
-	if IsAsDefaultValue(t.PidFile.AsDefaultValue) {
-		if t.PidFile.Value == nil && i.PidFile != nil {
-			process["pid_file"] = nil
-			changed = true
-		} else if t.PidFile.Value != nil && i.PidFile == nil {
-			process["pid_file"] = *t.PidFile.Value
-			changed = true
-		} else if t.PidFile.Value != nil && i.PidFile != nil && *t.PidFile.Value != *i.PidFile {
-			process["pid_file"] = *t.PidFile.Value
-			changed = true
-		}
-	}
-
 	if IsAsDefaultValue(t.AutoStart.AsDefaultValue) {
 		if t.AutoStart.Value == nil && i.AutoStart != nil {
 			process["auto_start"] = nil
@@ -656,15 +1094,15 @@ func (pt *ProcessTemplate) ExtractChangeInfo(i *Process) (mapstr.MapStr, bool) {
 		}
 	}
 
-	if IsAsDefaultValue(t.AutoTimeGapSeconds.AsDefaultValue) {
-		if t.AutoTimeGapSeconds.Value != nil && i.AutoTimeGap == nil {
-			process["auto_time_gap"] = *t.AutoTimeGapSeconds.Value
+	if IsAsDefaultValue(t.StartCheckSecs.AsDefaultValue) {
+		if t.StartCheckSecs.Value != nil && i.StartCheckSecs == nil {
+			process["bk_start_check_secs"] = *t.StartCheckSecs.Value
 			changed = true
-		} else if t.AutoTimeGapSeconds.Value == nil && i.AutoTimeGap != nil {
-			process["auto_time_gap"] = *t.AutoTimeGapSeconds.Value
+		} else if t.StartCheckSecs.Value == nil && i.StartCheckSecs != nil {
+			process["bk_start_check_secs"] = nil
 			changed = true
-		} else if t.AutoTimeGapSeconds.Value != nil && i.AutoTimeGap != nil && *t.AutoTimeGapSeconds.Value != *i.AutoTimeGap {
-			process["auto_time_gap"] = *t.AutoTimeGapSeconds.Value
+		} else if t.StartCheckSecs.Value != nil && i.StartCheckSecs != nil && *t.StartCheckSecs.Value != *i.StartCheckSecs {
+			process["bk_start_check_secs"] = *t.StartCheckSecs.Value
 			changed = true
 		}
 	}
@@ -678,19 +1116,6 @@ func (pt *ProcessTemplate) ExtractChangeInfo(i *Process) (mapstr.MapStr, bool) {
 			changed = true
 		} else if t.StartCmd.Value != nil && i.StartCmd != nil && *t.StartCmd.Value != *i.StartCmd {
 			process["start_cmd"] = *t.StartCmd.Value
-			changed = true
-		}
-	}
-
-	if IsAsDefaultValue(t.FuncID.AsDefaultValue) {
-		if t.FuncID.Value == nil && i.FuncID != nil {
-			process["bk_func_id"] = nil
-			changed = true
-		} else if t.FuncID.Value != nil && i.FuncID == nil {
-			process["bk_func_id"] = *t.FuncID.Value
-			changed = true
-		} else if t.FuncID.Value != nil && i.FuncID != nil && *t.FuncID.Value != *i.FuncID {
-			process["bk_func_id"] = *t.FuncID.Value
 			changed = true
 		}
 	}
@@ -721,19 +1146,6 @@ func (pt *ProcessTemplate) ExtractChangeInfo(i *Process) (mapstr.MapStr, bool) {
 		}
 	}
 
-	if IsAsDefaultValue(t.Protocol.AsDefaultValue) {
-		if t.Protocol.Value == nil && i.Protocol != nil {
-			process["protocol"] = nil
-			changed = true
-		} else if t.Protocol.Value != nil && i.Protocol == nil {
-			process["protocol"] = *t.Protocol.Value
-			changed = true
-		} else if t.Protocol.Value != nil && i.Protocol != nil && *t.Protocol.Value != *i.Protocol {
-			process["protocol"] = *t.Protocol.Value
-			changed = true
-		}
-	}
-
 	if IsAsDefaultValue(t.Description.AsDefaultValue) {
 		if t.Description.Value == nil && i.Description != nil {
 			process["description"] = nil
@@ -760,11 +1172,123 @@ func (pt *ProcessTemplate) ExtractChangeInfo(i *Process) (mapstr.MapStr, bool) {
 		}
 	}
 
+	if IsAsDefaultValue(t.PidFile.AsDefaultValue) {
+		if t.PidFile.Value == nil && i.PidFile != nil {
+			process["pid_file"] = nil
+			changed = true
+		} else if t.PidFile.Value != nil && i.PidFile == nil {
+			process["pid_file"] = *t.PidFile.Value
+			changed = true
+		} else if t.PidFile.Value != nil && i.PidFile != nil && *t.PidFile.Value != *i.PidFile {
+			process["pid_file"] = *t.PidFile.Value
+			changed = true
+		}
+	}
+
+	if IsAsDefaultValue(t.Priority.AsDefaultValue) {
+		if t.Priority.Value == nil && i.Priority != nil {
+			process["priority"] = nil
+			changed = true
+		} else if t.Priority.Value != nil && i.Priority == nil {
+			process["priority"] = *t.Priority.Value
+			changed = true
+		} else if t.Priority.Value != nil && i.Priority != nil && *t.Priority.Value != *i.Priority {
+			process["priority"] = *t.Priority.Value
+			changed = true
+		}
+	}
+
+	bindInfo, bindInfoChanged, bindInfoIsNamePortChanged := t.BindInfo.ExtractChangeInfoBindInfo(i, host)
+	process[common.BKProcBindInfo] = bindInfo
+	if bindInfoChanged {
+		changed = true
+
+	}
+	if bindInfoIsNamePortChanged {
+		bindInfoIsNamePortChanged = true
+
+	}
+
 	return process, changed
 }
 
+// FilterEditableFields only return editable fields
+func (pt *ProcessTemplate) GetEditableFields(fields []string) []string {
+	editableFields := pt.ExtractEditableFields()
+	result := make([]string, 0)
+	for _, field := range fields {
+		if util.InStrArr(editableFields, field) {
+			result = append(result, field)
+		}
+	}
+	return result
+}
+
+func (pt *ProcessTemplate) ExtractEditableFields() []string {
+	editableFields := make([]string, 0)
+	property := pt.Property
+	if IsAsDefaultValue(property.FuncName.AsDefaultValue) == false {
+		editableFields = append(editableFields, "bk_func_name")
+	}
+	if IsAsDefaultValue(property.ProcessName.AsDefaultValue) == false {
+		editableFields = append(editableFields, "bk_process_name")
+	}
+	if IsAsDefaultValue(property.StartParamRegex.AsDefaultValue) == false {
+		editableFields = append(editableFields, "bk_start_param_regex")
+	}
+	if IsAsDefaultValue(property.StartCheckSecs.AsDefaultValue) == false {
+		editableFields = append(editableFields, "bk_start_check_secs")
+	}
+	if IsAsDefaultValue(property.User.AsDefaultValue) == false {
+		editableFields = append(editableFields, "user")
+	}
+	if IsAsDefaultValue(property.StopCmd.AsDefaultValue) == false {
+		editableFields = append(editableFields, "stop_cmd")
+	}
+	if IsAsDefaultValue(property.ProcNum.AsDefaultValue) == false {
+		editableFields = append(editableFields, "proc_num")
+	}
+
+	if IsAsDefaultValue(property.Description.AsDefaultValue) == false {
+		editableFields = append(editableFields, "description")
+	}
+
+	if IsAsDefaultValue(property.TimeoutSeconds.AsDefaultValue) == false {
+		editableFields = append(editableFields, "timeout")
+	}
+	if IsAsDefaultValue(property.AutoStart.AsDefaultValue) == false {
+		editableFields = append(editableFields, "auto_start")
+	}
+	if IsAsDefaultValue(property.PidFile.AsDefaultValue) == false {
+		editableFields = append(editableFields, "pid_file")
+	}
+	if IsAsDefaultValue(property.ReloadCmd.AsDefaultValue) == false {
+		editableFields = append(editableFields, "reload_cmd")
+	}
+	if IsAsDefaultValue(property.RestartCmd.AsDefaultValue) == false {
+		editableFields = append(editableFields, "restart_cmd")
+	}
+	if IsAsDefaultValue(property.ForceStopCmd.AsDefaultValue) == false {
+		editableFields = append(editableFields, "face_stop_cmd")
+	}
+	if IsAsDefaultValue(property.WorkPath.AsDefaultValue) == false {
+		editableFields = append(editableFields, "work_path")
+	}
+
+	if IsAsDefaultValue(property.Priority.AsDefaultValue) == false {
+		editableFields = append(editableFields, "priority")
+	}
+	if IsAsDefaultValue(property.StartCmd.AsDefaultValue) == false {
+		editableFields = append(editableFields, "start_cmd")
+	}
+	//
+	editableFields = append(editableFields, common.BKProcBindInfo)
+
+	return editableFields
+}
+
 // InstanceUpdate is used for update instance's value
-func (pt *ProcessTemplate) ExtractInstanceUpdateData(input *Process) map[string]interface{} {
+func (pt *ProcessTemplate) ExtractInstanceUpdateData(input *Process, host map[string]interface{}) map[string]interface{} {
 	data := make(map[string]interface{})
 	property := pt.Property
 	if IsAsDefaultValue(property.FuncName.AsDefaultValue) == false {
@@ -777,19 +1301,14 @@ func (pt *ProcessTemplate) ExtractInstanceUpdateData(input *Process) map[string]
 			data["bk_process_name"] = *input.ProcessName
 		}
 	}
-	if IsAsDefaultValue(property.FuncID.AsDefaultValue) == false {
-		if input.FuncID != nil {
-			data["bk_func_id"] = *input.FuncID
-		}
-	}
 	if IsAsDefaultValue(property.StartParamRegex.AsDefaultValue) == false {
 		if input.StartParamRegex != nil {
 			data["bk_start_param_regex"] = *input.StartParamRegex
 		}
 	}
-	if IsAsDefaultValue(property.AutoTimeGapSeconds.AsDefaultValue) == false {
-		if input.AutoTimeGap != nil {
-			data["auto_time_gap"] = *input.AutoTimeGap
+	if IsAsDefaultValue(property.StartCheckSecs.AsDefaultValue) == false {
+		if input.StartCheckSecs != nil {
+			data["bk_start_check_secs"] = *input.StartCheckSecs
 		}
 	}
 	if IsAsDefaultValue(property.User.AsDefaultValue) == false {
@@ -807,21 +1326,13 @@ func (pt *ProcessTemplate) ExtractInstanceUpdateData(input *Process) map[string]
 			data["proc_num"] = *input.ProcNum
 		}
 	}
-	if IsAsDefaultValue(property.Port.AsDefaultValue) == false {
-		if input.Port != nil {
-			data["port"] = *input.Port
-		}
-	}
+
 	if IsAsDefaultValue(property.Description.AsDefaultValue) == false {
 		if input.Description != nil {
 			data["description"] = *input.Description
 		}
 	}
-	if IsAsDefaultValue(property.Protocol.AsDefaultValue) == false {
-		if input.Protocol != nil {
-			data["protocol"] = *input.Protocol
-		}
-	}
+
 	if IsAsDefaultValue(property.TimeoutSeconds.AsDefaultValue) == false {
 		if input.TimeoutSeconds != nil {
 			data["timeout"] = *input.TimeoutSeconds
@@ -857,11 +1368,7 @@ func (pt *ProcessTemplate) ExtractInstanceUpdateData(input *Process) map[string]
 			data["work_path"] = *input.WorkPath
 		}
 	}
-	if IsAsDefaultValue(property.BindIP.AsDefaultValue) == false {
-		if input.BindIP != nil {
-			data["bind_ip"] = *input.BindIP
-		}
-	}
+
 	if IsAsDefaultValue(property.Priority.AsDefaultValue) == false {
 		if input.Priority != nil {
 			data["priority"] = *input.Priority
@@ -872,31 +1379,41 @@ func (pt *ProcessTemplate) ExtractInstanceUpdateData(input *Process) map[string]
 			data["start_cmd"] = *input.StartCmd
 		}
 	}
+
+	// bind info 每次都是全量更新
+	data[common.BKProcBindInfo] = pt.Property.BindInfo.ExtractInstanceUpdateData(input, host)
+
 	return data
 }
 
 type ProcessProperty struct {
-	ProcNum            PropertyInt64    `field:"proc_num" json:"proc_num,omitempty" bson:"proc_num,omitempty" validate:"max=10000,min=1"`
-	StopCmd            PropertyString   `field:"stop_cmd" json:"stop_cmd,omitempty" bson:"stop_cmd,omitempty"`
-	RestartCmd         PropertyString   `field:"restart_cmd" json:"restart_cmd,omitempty" bson:"restart_cmd,omitempty"`
-	ForceStopCmd       PropertyString   `field:"face_stop_cmd" json:"face_stop_cmd,omitempty" bson:"face_stop_cmd,omitempty"`
-	FuncName           PropertyString   `field:"bk_func_name" json:"bk_func_name,omitempty" bson:"bk_func_name,omitempty" validate:"required"`
-	WorkPath           PropertyString   `field:"work_path" json:"work_path,omitempty" bson:"work_path,omitempty"`
-	BindIP             PropertyBindIP   `field:"bind_ip" json:"bind_ip,omitempty" bson:"bind_ip,omitempty"`
-	Priority           PropertyInt64    `field:"priority" json:"priority,omitempty" bson:"priority,omitempty" validate:"max=10000,min=1"`
-	ReloadCmd          PropertyString   `field:"reload_cmd" json:"reload_cmd,omitempty" bson:"reload_cmd,omitempty"`
-	ProcessName        PropertyString   `field:"bk_process_name" json:"bk_process_name,omitempty" bson:"bk_process_name,omitempty" validate:"required"`
-	Port               PropertyPort     `field:"port" json:"port,omitempty" bson:"port,omitempty"`
-	PidFile            PropertyString   `field:"pid_file" json:"pid_file,omitempty" bson:"pid_file,omitempty"`
-	AutoStart          PropertyBool     `field:"auto_start" json:"auto_start,omitempty" bson:"auto_start,omitempty"`
-	AutoTimeGapSeconds PropertyInt64    `field:"auto_time_gap" json:"auto_time_gap,omitempty" bson:"auto_time_gap,omitempty" validate:"max=10000,min=1"`
-	StartCmd           PropertyString   `field:"start_cmd" json:"start_cmd,omitempty" bson:"start_cmd,omitempty"`
-	FuncID             PropertyString   `field:"bk_func_id" json:"bk_func_id,omitempty" bson:"bk_func_id,omitempty"`
-	User               PropertyString   `field:"user" json:"user,omitempty" bson:"user,omitempty"`
-	TimeoutSeconds     PropertyInt64    `field:"timeout" json:"timeout,omitempty" bson:"timeout,omitempty" validate:"max=10000,min=1"`
-	Protocol           PropertyProtocol `field:"protocol" json:"protocol,omitempty" bson:"protocol,omitempty"`
-	Description        PropertyString   `field:"description" json:"description,omitempty" bson:"description,omitempty"`
-	StartParamRegex    PropertyString   `field:"bk_start_param_regex" json:"bk_start_param_regex,omitempty" bson:"bk_start_param_regex,omitempty"`
+	ProcNum      PropertyInt64  `field:"proc_num" json:"proc_num" bson:"proc_num" validate:"max=10000,min=1"`
+	StopCmd      PropertyString `field:"stop_cmd" json:"stop_cmd" bson:"stop_cmd"`
+	RestartCmd   PropertyString `field:"restart_cmd" json:"restart_cmd" bson:"restart_cmd"`
+	ForceStopCmd PropertyString `field:"face_stop_cmd" json:"face_stop_cmd" bson:"face_stop_cmd"`
+	FuncName     PropertyString `field:"bk_func_name" json:"bk_func_name" bson:"bk_func_name" validate:"required"`
+	WorkPath     PropertyString `field:"work_path" json:"work_path" bson:"work_path"`
+	//BindIP             PropertyBindIP   `field:"bind_ip" json:"bind_ip" bson:"bind_ip"`
+	Priority    PropertyInt64  `field:"priority" json:"priority" bson:"priority" validate:"max=10000,min=1"`
+	ReloadCmd   PropertyString `field:"reload_cmd" json:"reload_cmd" bson:"reload_cmd"`
+	ProcessName PropertyString `field:"bk_process_name" json:"bk_process_name" bson:"bk_process_name" validate:"required"`
+	//Port               PropertyPort     `field:"port" json:"port" bson:"port"`
+	PidFile        PropertyString `field:"pid_file" json:"pid_file" bson:"pid_file"`
+	AutoStart      PropertyBool   `field:"auto_start" json:"auto_start" bson:"auto_start"`
+	StartCheckSecs PropertyInt64  `field:"bk_start_check_secs" json:"bk_start_check_secs" bson:"bk_start_check_secs" validate:"max=600,min=1"`
+	StartCmd       PropertyString `field:"start_cmd" json:"start_cmd" bson:"start_cmd"`
+	User           PropertyString `field:"user" json:"user" bson:"user"`
+	TimeoutSeconds PropertyInt64  `field:"timeout" json:"timeout" bson:"timeout" validate:"max=10000,min=1"`
+	//Protocol           PropertyProtocol `field:"protocol" json:"protocol" bson:"protocol"`
+	Description     PropertyString `field:"description" json:"description" bson:"description"`
+	StartParamRegex PropertyString `field:"bk_start_param_regex" json:"bk_start_param_regex" bson:"bk_start_param_regex"`
+	//PortEnable         PropertyBool     `field:"bk_enable_port" json:"bk_enable_port" bson:"bk_enable_port"`
+	//GatewayIP       PropertyString   `field:"bk_gateway_ip" json:"bk_gateway_ip" bson:"bk_gateway_ip"`
+	//GatewayPort     PropertyString   `field:"bk_gateway_port" json:"bk_gateway_port" bson:"bk_gateway_port"`
+	//GatewayProtocol PropertyProtocol `field:"bk_gateway_protocol" json:"bk_gateway_protocol" bson:"bk_gateway_protocol"`
+	//GatewayCity     PropertyString   `field:"bk_gateway_city" json:"bk_gateway_city" bson:"bk_gateway_city"`
+
+	BindInfo ProcPropertyBindInfo `field:"bind_info" json:"bind_info" bson:"bind_info" structs:"bind_info" mapstructure:"bind_info"`
 }
 
 func (pt *ProcessProperty) Validate() (field string, err error) {
@@ -908,7 +1425,12 @@ func (pt *ProcessProperty) Validate() (field string, err error) {
 	for fieldIdx := 0; fieldIdx < fieldCount; fieldIdx++ {
 		field := selfType.Field(fieldIdx)
 		fieldVal := selfVal.Field(fieldIdx)
+		tag := field.Tag.Get("json")
+		fieldName := strings.Split(tag, ",")[0]
 
+		if fieldName == common.BKProcBindInfo {
+			continue
+		}
 		// check implements interface
 		fieldValType := fieldVal.Addr().Type()
 		if !fieldValType.Implements(propertyInterfaceType) {
@@ -921,10 +1443,13 @@ func (pt *ProcessProperty) Validate() (field string, err error) {
 		out := checkResult[0]
 		if !out.IsNil() {
 			err := out.Interface().(error)
-			tag := field.Tag.Get("json")
-			fieldName := strings.Split(tag, ",")[0]
+
 			return fieldName, err
 		}
+	}
+
+	if fieldName, err := pt.BindInfo.Validate(); err != nil {
+		return fieldName, err
 	}
 
 	if pt.ProcessName.Value == nil || len(*pt.ProcessName.Value) == 0 {
@@ -933,9 +1458,9 @@ func (pt *ProcessProperty) Validate() (field string, err error) {
 	if pt.FuncName.Value == nil || len(*pt.FuncName.Value) == 0 {
 		return "bk_func_name", fmt.Errorf("field [%s] is required", "bk_func_name")
 	}
-	if pt.AutoTimeGapSeconds.Value != nil {
-		if *pt.AutoTimeGapSeconds.Value < 1 || *pt.AutoTimeGapSeconds.Value > 10000 {
-			return "auto_time_gap", fmt.Errorf("field %s value must in range [1, 10000]", "auto_time_gap")
+	if pt.StartCheckSecs.Value != nil {
+		if *pt.StartCheckSecs.Value < 1 || *pt.StartCheckSecs.Value > 10000 {
+			return "bk_start_check_secs", fmt.Errorf("field %s value must in range [1, 600]", "bk_start_check_secs")
 		}
 	}
 	if pt.TimeoutSeconds.Value != nil {
@@ -953,11 +1478,14 @@ func (pt *ProcessProperty) Validate() (field string, err error) {
 			return "priority", fmt.Errorf("field %s value must in range [1, 10000]", "priority")
 		}
 	}
+
 	return "", nil
 }
 
 // Update all not nil field from input to pt
-func (pt *ProcessProperty) Update(input ProcessProperty) {
+// rawProperty allows us set property field to nil
+//  参数rawProperty，input 数据是一样的，只不过一个是map,一个struct。 因为struct 是有默认行为的。 rawProperty为了获取用户是否输入
+func (pt *ProcessProperty) Update(input ProcessProperty, rawProperty map[string]interface{}) {
 	selfType := reflect.TypeOf(pt).Elem()
 	selfVal := reflect.ValueOf(pt).Elem()
 	inputVal := reflect.ValueOf(input)
@@ -968,18 +1496,28 @@ func (pt *ProcessProperty) Update(input ProcessProperty) {
 		if util.InArray(fieldName, updateIgnoreField) == true {
 			continue
 		}
+		fieldTag := selfType.Field(fieldIdx).Tag.Get("json")
+		// 如果rawProperty不存在的字段，表示没有传递该字段，表示的型行为是不修改改字段
+		if _, ok := rawProperty[fieldTag]; ok == false {
+			continue
+		}
+		// bind info 是特有方法更新
+		if fieldTag == common.BKProcBindInfo {
+			continue
+		}
 		inputField := inputVal.Field(fieldIdx)
 		selfField := selfVal.Field(fieldIdx)
 		subFieldCount := inputField.NumField()
 		// subFields: Value, AsDefaultValue
 		for subFieldIdx := 0; subFieldIdx < subFieldCount; subFieldIdx++ {
+			selfFieldValuePtr := selfField.Field(subFieldIdx)
 			inputFieldPtr := inputField.Field(subFieldIdx)
 			if inputFieldPtr.IsNil() {
+				selfFieldValuePtr.Set(inputFieldPtr)
 				continue
 			}
 			inputFieldValue := inputFieldPtr.Elem()
 
-			selfFieldValuePtr := selfField.Field(subFieldIdx)
 			if selfFieldValuePtr.Kind() == reflect.Ptr {
 				if selfFieldValuePtr.IsNil() && selfFieldValuePtr.CanSet() {
 					selfFieldValuePtr.Set(reflect.New(selfFieldValuePtr.Type().Elem()))
@@ -990,6 +1528,9 @@ func (pt *ProcessProperty) Update(input ProcessProperty) {
 			selfFieldValue.Set(inputFieldValue)
 		}
 	}
+	bindInfo := &pt.BindInfo
+	bindInfo.Update(input, rawProperty)
+
 	return
 }
 
@@ -1054,6 +1595,15 @@ type PropertyString struct {
 }
 
 func (ti *PropertyString) Validate() error {
+	if ti == nil {
+		return nil
+	}
+	if ti.Value != nil {
+		value := *ti.Value
+		if len(value) == 0 {
+			return nil
+		}
+	}
 	return nil
 }
 
@@ -1074,8 +1624,36 @@ func (ti *PropertyPort) Validate() error {
 		if matched := ProcessPortFormat.MatchString(*ti.Value); matched == false {
 			return fmt.Errorf("port format invalid")
 		}
+		var tmpPortArr []propertyPortItem
+		strPortItemArr := strings.Split(*ti.Value, ",")
+		for _, strPortItem := range strPortItemArr {
+			portArr := strings.Split(strPortItem, "-")
+			var start, end int64
+			start, _ = util.GetInt64ByInterface(portArr[0])
+			if len(portArr) > 1 {
+				end, _ = util.GetInt64ByInterface(portArr[1])
+			} else {
+				end = start
+			}
+			if start > end {
+				return fmt.Errorf("port format invalid, start > end")
+			}
+			for _, tmpItem := range tmpPortArr {
+				if !(end < tmpItem.start || start > tmpItem.end) {
+					return fmt.Errorf("port format invalid,  port duplicate:" + strPortItem)
+				}
+			}
+			tmpPortArr = append(tmpPortArr, propertyPortItem{start: start, end: end})
+		}
+
 	}
 	return nil
+}
+
+// propertyPortItem 记录进程端口起始范围
+type propertyPortItem struct {
+	start int64
+	end   int64
 }
 
 type PropertyBindIP struct {
@@ -1108,25 +1686,24 @@ func (ti *PropertyProtocol) Validate() error {
 
 // ServiceInstance is a service, which created when a host binding with a service template.
 type ServiceInstance struct {
-	Metadata Metadata        `field:"metadata" json:"metadata" bson:"metadata"`
-	ID       int64           `field:"id" json:"id,omitempty" bson:"id"`
-	Name     string          `field:"name" json:"name,omitempty" bson:"name"`
-	Labels   selector.Labels `field:"labels" json:"labels,omitempty" bson:"labels"`
+	BizID  int64           `field:"bk_biz_id" json:"bk_biz_id" bson:"bk_biz_id"`
+	ID     int64           `field:"id" json:"id" bson:"id"`
+	Name   string          `field:"name" json:"name" bson:"name"`
+	Labels selector.Labels `field:"labels" json:"labels" bson:"labels"`
 
 	// the template id can not be updated, once the service is created.
 	// it can be 0 when the service is not created with a service template.
-	ServiceTemplateID int64  `field:"service_template_id" json:"service_template_id,omitempty" bson:"service_template_id"`
-	HostID            int64  `field:"bk_host_id" json:"bk_host_id,omitempty" bson:"bk_host_id"`
-	InnerIP           string `field:"bk_host_innerip" json:"bk_host_innerip,omitempty" bson:"bk_host_innerip"`
+	ServiceTemplateID int64 `field:"service_template_id" json:"service_template_id" bson:"service_template_id"`
+	HostID            int64 `field:"bk_host_id" json:"bk_host_id" bson:"bk_host_id"`
 
 	// the module that this service belongs to.
-	ModuleID int64 `field:"bk_module_id" json:"bk_module_id,omitempty" bson:"bk_module_id"`
+	ModuleID int64 `field:"bk_module_id" json:"bk_module_id" bson:"bk_module_id"`
 
-	Creator         string    `field:"creator" json:"creator,omitempty" bson:"creator"`
-	Modifier        string    `field:"modifier" json:"modifier,omitempty" bson:"modifier"`
-	CreateTime      time.Time `field:"create_time" json:"create_time,omitempty" bson:"create_time"`
-	LastTime        time.Time `field:"last_time" json:"last_time,omitempty" bson:"last_time"`
-	SupplierAccount string    `field:"bk_supplier_account" json:"bk_supplier_account,omitempty" bson:"bk_supplier_account"`
+	Creator         string    `field:"creator" json:"creator" bson:"creator"`
+	Modifier        string    `field:"modifier" json:"modifier" bson:"modifier"`
+	CreateTime      time.Time `field:"create_time" json:"create_time" bson:"create_time"`
+	LastTime        time.Time `field:"last_time" json:"last_time" bson:"last_time"`
+	SupplierAccount string    `field:"bk_supplier_account" json:"bk_supplier_account" bson:"bk_supplier_account"`
 }
 
 func (si *ServiceInstance) Validate() (field string, err error) {
@@ -1144,8 +1721,7 @@ func (si *ServiceInstance) Validate() (field string, err error) {
 
 type ServiceInstanceDetail struct {
 	ServiceInstance
-	ServiceCategoryID int64               `field:"service_category_id" json:"service_category_id" bson:"service_category_id"`
-	ProcessInstances  []ProcessInstanceNG `field:"process_instances" json:"process_instances" bson:"process_instances"`
+	ProcessInstances []ProcessInstanceNG `field:"process_instances" json:"process_instances" bson:"process_instances"`
 }
 
 type ServiceInstanceWithTopoPath struct {
@@ -1155,7 +1731,7 @@ type ServiceInstanceWithTopoPath struct {
 
 // ProcessInstanceRelation record which service instance and process template are current process binding, process identified by ProcessID
 type ProcessInstanceRelation struct {
-	Metadata Metadata `field:"metadata" json:"metadata" bson:"metadata"`
+	BizID int64 `field:"bk_biz_id" json:"bk_biz_id" bson:"bk_biz_id"`
 
 	// unique field, 1:1 mapping with ProcessInstance.
 	ProcessID         int64 `field:"bk_process_id" json:"bk_process_id" bson:"bk_process_id"`
@@ -1171,6 +1747,31 @@ type ProcessInstanceRelation struct {
 
 func (pir *ProcessInstanceRelation) Validate() (field string, err error) {
 	return "", nil
+}
+
+type HostProcessRelation struct {
+	HostID    int64 `json:"bk_host_id" bson:"bk_host_id"`
+	ProcessID int64 `json:"bk_process_id" bson:"bk_process_id"`
+}
+
+type HostProcessInstance struct {
+	HostID    int64        `json:"bk_host_id"`
+	ProcessID int64        `json:"bk_process_id"`
+	BindIP    string       `json:"bind_ip"`
+	Port      string       `json:"port"`
+	Protocol  ProtocolType `json:"protocol"`
+}
+
+type ProcessInstanceNameIDs struct {
+	ProcessName string  `json:"bk_process_name"`
+	ProcessIDs  []int64 `json:"process_ids"`
+}
+
+type ProcessInstanceDetailByID struct {
+	ProcessID           int64                   `json:"process_id"`
+	ServiceInstanceName string                  `json:"service_instance_name"`
+	Property            mapstr.MapStr           `json:"property"`
+	Relation            ProcessInstanceRelation `json:"relation"`
 }
 
 type ProcessInstance struct {
@@ -1189,13 +1790,13 @@ type GetProc2ModuleOption struct {
 }
 
 type Proc2Module struct {
-	BizID           int    `json:"bk_biz_id"`
+	BizID           int64  `json:"bk_biz_id"`
 	ModuleName      string `json:"bk_module_name"`
-	ProcessID       int    `json:"bk_process_id"`
+	ProcessID       int64  `json:"bk_process_id"`
 	SupplierAccount string `json:"bk_supplier_account"`
 }
 
 type LabelAggregationOption struct {
-	Metadata Metadata `json:"metadata"`
-	ModuleID *int64   `json:"bk_module_id" bson:"bk_module_id" field:"bk_module_id"`
+	BizID    int64  `json:"bk_biz_id"`
+	ModuleID *int64 `json:"bk_module_id" bson:"bk_module_id" field:"bk_module_id"`
 }

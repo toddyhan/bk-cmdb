@@ -3,6 +3,7 @@
         <bk-input :class="['cmdb-form-input', { 'has-icon': !!icon }]" type="text"
             v-model="localValue"
             :placeholder="placeholder"
+            v-bind="$attrs"
             @enter="handleEnter">
         </bk-input>
         <i :class="[icon, 'input-icon']" v-if="icon" @click="handleIconClick"></i>
@@ -45,6 +46,9 @@
             },
             handleIconClick () {
                 this.$emit('icon-click', this.localValue)
+            },
+            focus () {
+                this.$el.querySelector('input').focus()
             }
         }
     }

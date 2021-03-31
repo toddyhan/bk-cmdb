@@ -33,9 +33,7 @@ func reconcilUnique(ctx context.Context, db dal.RDB, conf *upgrader.Config) erro
 		common.BKInnerObjIDRouter,
 		common.BKInnerObjIDBlance,
 		common.BKInnerObjIDFirewall,
-		common.BKInnerObjIDWeblogic,
-		common.BKInnerObjIDTomcat,
-		common.BKInnerObjIDApache})
+	})
 
 	objStrMapArr := make([]map[string]string, 0)
 	err := db.Table(common.BKTableNameObjDes).Find(attrCond.ToMapStr()).Fields(common.BKObjIDField).All(ctx, &objStrMapArr)
@@ -73,19 +71,6 @@ func reconcilUnique(ctx context.Context, db dal.RDB, conf *upgrader.Config) erro
 		case common.BKInnerObjIDFirewall:
 			shouldCheck = append(shouldCheck, keyfunc(common.BKInnerObjIDFirewall, common.BKAssetIDField))
 			uniques = append(uniques, buildUnique(propertyIDToProperty, common.BKInnerObjIDFirewall, common.BKAssetIDField))
-
-		case common.BKInnerObjIDWeblogic:
-			shouldCheck = append(shouldCheck, keyfunc(common.BKInnerObjIDWeblogic, common.BKInstKeyField))
-			uniques = append(uniques, buildUnique(propertyIDToProperty, common.BKInnerObjIDWeblogic, common.BKInstKeyField))
-
-		case common.BKInnerObjIDTomcat:
-			shouldCheck = append(shouldCheck, keyfunc(common.BKInnerObjIDTomcat, common.BKInstKeyField))
-			uniques = append(uniques, buildUnique(propertyIDToProperty, common.BKInnerObjIDTomcat, common.BKInstKeyField))
-
-		case common.BKInnerObjIDApache:
-			shouldCheck = append(shouldCheck, keyfunc(common.BKInnerObjIDApache, common.BKInstKeyField))
-			uniques = append(uniques, buildUnique(propertyIDToProperty, common.BKInnerObjIDApache, common.BKInstKeyField))
-
 		}
 	}
 
@@ -93,7 +78,12 @@ func reconcilUnique(ctx context.Context, db dal.RDB, conf *upgrader.Config) erro
 		return fmt.Errorf("expected field not exists: %v", notExistFields)
 	}
 
-	for _, unique := range uniques {
+	uniqueIDs, err := db.NextSequences(ctx, common.BKTableNameObjUnique, len(uniques))
+	if err != nil {
+		return err
+	}
+
+	for index, unique := range uniques {
 		exists, err := isUniqueExists(ctx, db, conf, unique)
 		if err != nil {
 			return err
@@ -102,11 +92,7 @@ func reconcilUnique(ctx context.Context, db dal.RDB, conf *upgrader.Config) erro
 			continue
 		}
 
-		uid, err := db.NextSequence(ctx, common.BKTableNameObjUnique)
-		if err != nil {
-			return err
-		}
-		unique.ID = uid
+		unique.ID = uniqueIDs[index]
 		if err := db.Table(common.BKTableNameObjUnique).Insert(ctx, unique); err != nil {
 			return err
 		}

@@ -23,6 +23,7 @@ const (
 	ModelFieldObjIcon     = "bk_obj_icon"
 	ModelFieldObjectID    = "bk_obj_id"
 	ModelFieldObjectName  = "bk_obj_name"
+	ModelFieldIsHidden    = "bk_ishidden"
 	ModelFieldIsPre       = "ispre"
 	ModelFieldIsPaused    = "bk_ispaused"
 	ModelFieldPosition    = "position"
@@ -36,12 +37,15 @@ const (
 
 // Object object metadata definition
 type Object struct {
-	Metadata    `field:"metadata" json:"metadata" bson:"metadata"`
 	ID          int64  `field:"id" json:"id" bson:"id"`
 	ObjCls      string `field:"bk_classification_id" json:"bk_classification_id" bson:"bk_classification_id"`
 	ObjIcon     string `field:"bk_obj_icon" json:"bk_obj_icon" bson:"bk_obj_icon"`
 	ObjectID    string `field:"bk_obj_id" json:"bk_obj_id" bson:"bk_obj_id"`
 	ObjectName  string `field:"bk_obj_name" json:"bk_obj_name" bson:"bk_obj_name"`
+
+	// IsHidden front-end don't display the object if IsHidden is true
+	IsHidden    bool   `field:"bk_ishidden" json:"bk_ishidden" bson:"bk_ishidden"`
+
 	IsPre       bool   `field:"ispre" json:"ispre" bson:"ispre"`
 	IsPaused    bool   `field:"bk_ispaused" json:"bk_ispaused" bson:"bk_ispaused"`
 	Position    string `field:"position" json:"position" bson:"position"`
@@ -86,9 +90,8 @@ func GetInstIDFieldByObjID(objID string) string {
 
 }
 
-// GetInstNameFieldName get the inst name
-func (o *Object) GetInstNameFieldName() string {
-	switch o.ObjectID {
+func GetInstNameFieldName(objID string) string {
+	switch objID {
 	case common.BKInnerObjIDApp:
 		return common.BKAppNameField
 	case common.BKInnerObjIDSet:
@@ -104,6 +107,11 @@ func (o *Object) GetInstNameFieldName() string {
 	default:
 		return common.BKInstNameField
 	}
+}
+
+// GetInstNameFieldName get the inst name
+func (o *Object) GetInstNameFieldName() string {
+	return GetInstNameFieldName(o.ObjectID)
 }
 
 // GetObjectType get the object type
@@ -133,7 +141,10 @@ func (o *Object) GetObjectID() string {
 
 // IsCommon is common object
 func (o *Object) IsCommon() bool {
-	switch o.ObjectID {
+	return IsCommon(o.ObjectID)
+}
+func IsCommon(objID string) bool {
+	switch objID {
 	case common.BKInnerObjIDApp:
 		return false
 	case common.BKInnerObjIDSet:
@@ -182,8 +193,10 @@ type ObjectClsDes struct {
 }
 
 type InnerModule struct {
-	ModuleID   int64  `json:"bk_module_id" field:"bk_module_id"`
-	ModuleName string `json:"bk_module_name" field:"bk_module_name"`
+	ModuleID         int64  `field:"bk_module_id" json:"bk_module_id" bson:"bk_module_id" mapstructure:"bk_module_id"`
+	ModuleName       string `field:"bk_module_name" bson:"bk_module_name" json:"bk_module_name" mapstructure:"bk_module_name"`
+	Default          int64  `field:"default" bson:"default" json:"default" mapstructure:"default"`
+	HostApplyEnabled bool   `field:"host_apply_enabled" bson:"host_apply_enabled" json:"host_apply_enabled" mapstructure:"host_apply_enabled"`
 }
 
 type InnterAppTopo struct {

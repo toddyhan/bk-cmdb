@@ -13,12 +13,16 @@
 package service
 
 import (
-	"github.com/emicklei/go-restful"
+	"context"
 
 	"configcenter/src/common"
 	"configcenter/src/common/metadata"
 	"configcenter/src/common/metric"
 	"configcenter/src/common/types"
+	"configcenter/src/storage/driver/mongodb"
+	"configcenter/src/storage/driver/redis"
+
+	"github.com/emicklei/go-restful"
 )
 
 func (s *coreService) Healthz(req *restful.Request, resp *restful.Response) {
@@ -26,7 +30,7 @@ func (s *coreService) Healthz(req *restful.Request, resp *restful.Response) {
 
 	// zk health status
 	zkItem := metric.HealthItem{IsHealthy: true, Name: types.CCFunctionalityServicediscover}
-	if err := s.engin.Ping(); err != nil {
+	if err := s.engine.Ping(); err != nil {
 		zkItem.IsHealthy = false
 		zkItem.Message = err.Error()
 	}
@@ -34,10 +38,10 @@ func (s *coreService) Healthz(req *restful.Request, resp *restful.Response) {
 
 	// mongodb status
 	mongoItem := metric.HealthItem{IsHealthy: true, Name: types.CCFunctionalityMongo}
-	if s.db == nil {
+	if mongodb.Client() == nil {
 		mongoItem.IsHealthy = false
 		mongoItem.Message = "not connected"
-	} else if err := s.db.Ping(); err != nil {
+	} else if err := mongodb.Client().Ping(); err != nil {
 		mongoItem.IsHealthy = false
 		mongoItem.Message = err.Error()
 	}
@@ -45,10 +49,10 @@ func (s *coreService) Healthz(req *restful.Request, resp *restful.Response) {
 
 	// redis status
 	redisItem := metric.HealthItem{IsHealthy: true, Name: types.CCFunctionalityRedis}
-	if s.cahce == nil {
+	if redis.Client() == nil {
 		redisItem.IsHealthy = false
 		redisItem.Message = "not connected"
-	} else if err := s.cahce.Ping().Err(); err != nil {
+	} else if err := redis.Client().Ping(context.Background()).Err(); err != nil {
 		redisItem.IsHealthy = false
 		redisItem.Message = err.Error()
 	}
@@ -57,13 +61,13 @@ func (s *coreService) Healthz(req *restful.Request, resp *restful.Response) {
 	for _, item := range meta.Items {
 		if item.IsHealthy == false {
 			meta.IsHealthy = false
-			meta.Message = "host controller is unhealthy"
+			meta.Message = "coreservice is unhealthy"
 			break
 		}
 	}
 
 	info := metric.HealthInfo{
-		Module:     types.CC_MODULE_HOST,
+		Module:     types.CC_MODULE_CORESERVICE,
 		HealthMeta: meta,
 		AtTime:     metadata.Now(),
 	}

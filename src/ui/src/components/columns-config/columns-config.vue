@@ -4,6 +4,7 @@
             <div class="wrapper-header unselected-header">
                 <bk-input class="header-filter"
                     type="text"
+                    clearable
                     right-icon="bk-icon icon-search"
                     :placeholder="$t('搜索属性')"
                     v-model.trim="filter">
@@ -40,9 +41,9 @@
             </div>
         </div>
         <div class="config-options clearfix">
-            <bk-button class="config-button fl" theme="primary" @click="handleApply">{{$t('应用')}}</bk-button>
+            <bk-button class="config-button fl" theme="primary" @click="handleApply">{{confirmText || $t('应用')}}</bk-button>
             <bk-button class="config-button fl" theme="default" @click="handleCancel">{{$t('取消')}}</bk-button>
-            <bk-button class="config-button fr" theme="default" @click="handleReset">{{$t('还原默认')}}</bk-button>
+            <bk-button class="config-button fr" theme="default" @click="handleReset" v-if="showReset">{{$t('还原默认')}}</bk-button>
         </div>
     </div>
 </template>
@@ -80,6 +81,14 @@
             max: {
                 type: Number,
                 default: 20
+            },
+            confirmText: {
+                type: String,
+                default: ''
+            },
+            showReset: {
+                type: Boolean,
+                default: true
             }
         },
         data () {
@@ -103,9 +112,10 @@
             },
             undragbbleProperties () {
                 const undragbbleProperties = []
-                this.localSelected.forEach(propertyId => {
-                    if (this.disabledColumns.includes(propertyId)) {
-                        const property = this.properties.find(property => property['bk_property_id'] === propertyId)
+                this.disabledColumns.forEach(id => {
+                    const isSelected = this.localSelected.includes(id)
+                    if (isSelected) {
+                        const property = this.properties.find(property => property.bk_property_id === id)
                         if (property) {
                             undragbbleProperties.push(property)
                         }
@@ -174,7 +184,9 @@
             },
             handleReset () {
                 this.$bkInfo({
-                    title: this.$t('是否要还原回系统默认显示属性？'),
+                    title: this.$t('确认还原配置'),
+                    subTitle: this.$t('是否还原为系统默认的列表属性配置？'),
+                    extCls: 'bk-dialog-sub-header-center',
                     confirmFn: () => {
                         this.$emit('on-reset')
                     }
@@ -211,7 +223,7 @@
     }
     .property-list-layout {
         height: calc(100% - 78px);
-        padding: 15px 0;
+        padding: 0;
         @include scrollbar-y;
     }
     .property-list {
@@ -249,9 +261,9 @@
             }
             .icon-arrows-right{
                 position: absolute;
-                top: 14px;
-                right: 18px;
-                font-size: 15px;
+                top: 11px;
+                right: 15px;
+                font-size: 20px;
             }
             .icon-close{
                 position: absolute;
@@ -262,6 +274,7 @@
                 line-height: 42px;
                 text-align: center;
                 color: #c4c6cc;
+                font-size: 20px;
                 &:hover {
                     color: #7d8088;
                 }

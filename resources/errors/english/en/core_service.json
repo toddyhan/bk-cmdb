@@ -22,13 +22,19 @@
     "1113022": "delete processe [%s] created by template forbidden",
     "1113023": "delete [%s] data from multiple models",
     "1113024": "fields in unique checksums are not allowed to be deleted",
-    "1113025": "the model needs at least one set of unique checksums",
+    "1113025": "Modify description of attributes that are not allowed to be modified",
     "1113026": "model [%s] does not allow create required fields",
     "1113027": "model [%s] does not allow modification of required fields",
     "1113028": "model [%s] does not allow create fields",
     "1113029": "model [%s] is not allowed to delete",
     "1113030": "has instance under the model",
     "1113031": "the model is related to other models",
+    "1113032": "only leaf node available",
+    "1113033": "search too many data",
+    "1113033": "the resource pool directory does not exist",
+    "1113034": "the following hosts are not under any resource pool directory: %d",
+    "1113050": "same unique check rule has existed",
+
     
     "":""
 }

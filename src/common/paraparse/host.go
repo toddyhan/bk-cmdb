@@ -66,7 +66,11 @@ func ParseHostParams(input []metadata.ConditionItem, output map[string]interface
 			output[i.Field] = i.Value
 		case common.BKDBIN:
 			queryCondItem := make(map[string]interface{})
-			queryCondItem[i.Operator] = i.Value
+			if i.Value == nil {
+				queryCondItem[i.Operator] = make([]interface{}, 0)
+			} else {
+				queryCondItem[i.Operator] = i.Value
+			}
 			output[i.Field] = queryCondItem
 		case common.BKDBLIKE:
 			regex := make(map[string]interface{})
@@ -85,7 +89,11 @@ func ParseHostParams(input []metadata.ConditionItem, output map[string]interface
 				}
 				fields = append(fields, mapstr.MapStr{i.Field: mapstr.MapStr{common.BKDBLIKE: mstr}})
 			}
-			output[common.BKDBOR] = fields
+			if len(fields) != 0 {
+				// only when the fields is none empty, then the fields is valid.
+				// a or operator can not have a empty value in mongodb.
+				output[common.BKDBOR] = fields
+			}
 		default:
 			queryCondItem, ok := output[i.Field].(map[string]interface{})
 			if !ok {
@@ -112,30 +120,22 @@ func ParseHostIPParams(ipCond metadata.IPInfo, output map[string]interface{}) er
 		return nil
 	}
 	if 1 == exact {
-		//exact search
-		c := make(map[string]interface{})
-		c[common.BKDBIN] = ipArr
+		// exact search
+		exactOr := make([]map[string]interface{}, 0)
+		exactIP := map[string]interface{}{common.BKDBIN: ipArr}
 		if INNERONLY == flag {
-			output[common.BKHostInnerIPField] = c
-
+			exactOr = append(exactOr, mapstr.MapStr{common.BKHostInnerIPField: exactIP})
 		} else if OUTERONLY == flag {
-			output[common.BKHostOuterIPField] = c
+			exactOr = append(exactOr, mapstr.MapStr{common.BKHostOuterIPField: exactIP})
 		} else if IOBOTH == flag {
-			io := make([]map[string]interface{}, 2)
-			i := make(map[string]interface{})
-			o := make(map[string]interface{})
-			ic := make(map[string]interface{})
-			oc := make(map[string]interface{})
-			i[common.BKDBIN] = ipArr
-			o[common.BKDBIN] = ipArr
-			ic[common.BKHostInnerIPField] = i
-			oc[common.BKHostOuterIPField] = o
-			io[0] = ic
-			io[1] = oc
-			output[common.BKDBOR] = io
+			exactOr = append(exactOr, mapstr.MapStr{common.BKHostInnerIPField: exactIP})
+			exactOr = append(exactOr, mapstr.MapStr{common.BKHostOuterIPField: exactIP})
+		} else {
+			return fmt.Errorf("unsupported ip.flag %s", flag)
 		}
+		output[common.BKDBOR] = exactOr
 	} else {
-		//not exact search
+		// not exact search
 		orCond := make([]map[string]map[string]interface{}, 0)
 		for _, ip := range ipArr {
 			c := make(map[string]interface{})
@@ -155,10 +155,11 @@ func ParseHostIPParams(ipCond metadata.IPInfo, output map[string]interface{}) er
 				ipiCon[common.BKHostInnerIPField] = c
 				orCond = append(orCond, ipoCon)
 				orCond = append(orCond, ipiCon)
+			} else {
+				return fmt.Errorf("unsupported ip.flag %s", flag)
 			}
-			output[common.BKDBOR] = orCond
 		}
-
+		output[common.BKDBOR] = orCond
 	}
 	return nil
 }

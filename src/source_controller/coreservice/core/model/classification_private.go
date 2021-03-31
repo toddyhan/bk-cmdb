@@ -15,74 +15,56 @@ package model
 import (
 	"configcenter/src/common"
 	"configcenter/src/common/blog"
+	"configcenter/src/common/http/rest"
+	"configcenter/src/common/mapstr"
 	"configcenter/src/common/metadata"
 	"configcenter/src/common/universalsql"
 	"configcenter/src/common/universalsql/mongo"
-	"configcenter/src/source_controller/coreservice/core"
+	"configcenter/src/common/util"
+	"configcenter/src/storage/driver/mongodb"
 )
 
-func (m *modelClassification) isValid(ctx core.ContextParams, classificationID string) (bool, error) {
+func (m *modelClassification) isValid(kit *rest.Kit, classificationID string) (bool, error) {
 
 	cond := mongo.NewCondition()
 	cond.Element(&mongo.Eq{Key: metadata.ClassFieldClassificationID, Val: classificationID})
-	cond.Element(&mongo.Eq{Key: metadata.ClassFieldClassificationSupplierAccount, Val: ctx.SupplierAccount})
-
-	cnt, err := m.count(ctx, cond)
+	cnt, err := m.count(kit, cond)
+	return true, nil
 	return 0 != cnt, err
 }
 
-func (m *modelClassification) isExists(ctx core.ContextParams, classificationID string, meta metadata.Metadata) (origin *metadata.Classification, exists bool, err error) {
-
+func (m *modelClassification) isExists(kit *rest.Kit, classificationID string) (origin *metadata.Classification, exists bool, err error) {
 	origin = &metadata.Classification{}
 	cond := mongo.NewCondition()
-	cond.Element(&mongo.Eq{Key: metadata.ClassFieldClassificationID, Val: ctx.SupplierAccount})
 	cond.Element(&mongo.Eq{Key: metadata.ClassFieldClassificationID, Val: classificationID})
 
-	// ATTETION: Currently only business dimension isolation is done,
-	//           and there may be isolation requirements for other dimensions in the future.
-	isExsit, bizID := meta.Label.Get(common.BKAppIDField)
-	if isExsit {
-		_, metaCond := cond.Embed(metadata.BKMetadata)
-		_, lableCond := metaCond.Embed(metadata.BKLabel)
-		lableCond.Element(&mongo.Eq{Key: common.BKAppIDField, Val: bizID})
-	}
-
-	err = m.dbProxy.Table(common.BKTableNameObjClassifiction).Find(cond.ToMapStr()).One(ctx, origin)
-	if nil != err && !m.dbProxy.IsNotFoundError(err) {
+	condMap := util.SetQueryOwner(cond.ToMapStr(), kit.SupplierAccount)
+	err = mongodb.Client().Table(common.BKTableNameObjClassification).Find(condMap).One(kit.Ctx, origin)
+	if nil != err && !mongodb.Client().IsNotFoundError(err) {
 		return origin, false, err
 	}
-	return origin, !m.dbProxy.IsNotFoundError(err), nil
+	return origin, !mongodb.Client().IsNotFoundError(err), nil
 }
 
-func (m *modelClassification) hasModel(ctx core.ContextParams, cond universalsql.Condition) (cnt uint64, exists bool, err error) {
+func (m *modelClassification) hasModel(kit *rest.Kit, cond universalsql.Condition) (cnt uint64, exists bool, err error) {
 
-	clsItems, err := m.search(ctx, cond)
+	clsItems, err := m.search(kit, cond)
 	if nil != err {
 		return 0, false, err
 	}
 
-	clsIDS := []string{}
+	clsIDS := make([]string, 0)
 	for _, item := range clsItems {
 		clsIDS = append(clsIDS, item.ClassificationID)
 	}
 
-	checkModelCond := mongo.NewCondition()
-	checkModelCond.Element(mongo.Field(metadata.ModelFieldObjCls).In(clsIDS))
-	checkModelCond.Element(mongo.Field(metadata.ModelFieldOwnerID).Eq(ctx.SupplierAccount))
-
-	cnt, err = m.dbProxy.Table(common.BKTableNameObjDes).Find(checkModelCond.ToMapStr()).Count(ctx)
+	filter := mapstr.MapStr{metadata.ModelFieldObjCls: mapstr.MapStr{common.BKDBIN: clsIDS}}
+	util.SetQueryOwner(filter, kit.SupplierAccount)
+	cnt, err = mongodb.Client().Table(common.BKTableNameObjDes).Find(filter).Count(kit.Ctx)
 	if nil != err {
-		blog.Errorf("request(%s): it is failed to execute database count operation on the table(%s) by the condition(%#v), error info is %s", ctx.ReqID, common.BKTableNameObjDes, cond.ToMapStr(), err.Error())
+		blog.Errorf("request(%s): it is failed to execute database count operation on the table(%s) by the condition(%#v), error info is %s", kit.Rid, common.BKTableNameObjDes, filter, err.Error())
 		return 0, false, err
 	}
 	exists = 0 != cnt
 	return cnt, exists, err
-}
-
-func (m *modelClassification) cascadeDeleteModel(ctx core.ContextParams, classificationIDS []string) (uint64, error) {
-
-	deleteCond := mongo.NewCondition()
-	deleteCond.Element(&mongo.In{Key: metadata.ModelFieldObjCls, Val: classificationIDS})
-	deleteCond.Element(&mongo.Eq{Key: metadata.ModelFieldOwnerID, Val: ctx.SupplierAccount})
-	return m.model.cascadeDelete(ctx, deleteCond)
 }

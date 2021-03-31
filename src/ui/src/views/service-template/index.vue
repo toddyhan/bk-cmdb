@@ -1,41 +1,38 @@
 <template>
     <div class="template-wrapper" ref="templateWrapper">
-        <feature-tips
-            :feature-name="'serviceTemplate'"
-            :show-tips="showFeatureTips"
-            :desc="$t('服务模板功能提示')"
-            @close-tips="showFeatureTips = false">
-        </feature-tips>
+        <cmdb-tips class="mb10 top-tips" tips-key="serviceTemplateTips">
+            <i18n path="服务模板功能提示">
+                <a class="tips-link" href="javascript:void(0)" @click="handleTipsLinkClick" place="link">{{$t('业务拓扑')}}</a>
+            </i18n>
+        </cmdb-tips>
         <div class="template-filter clearfix">
-            <span class="fl mr10"
-                v-cursor="{
-                    active: !$isAuthorized($OPERATION.C_SERVICE_TEMPLATE),
-                    auth: [$OPERATION.C_SERVICE_TEMPLATE]
-                }">
-                <bk-button
+            <cmdb-auth class="fl mr10" :auth="{ type: $OPERATION.C_SERVICE_TEMPLATE, relation: [bizId] }">
+                <bk-button slot-scope="{ disabled }"
                     theme="primary"
-                    :disabled="!$isAuthorized($OPERATION.C_SERVICE_TEMPLATE)"
+                    :disabled="disabled"
                     @click="operationTemplate()">
                     {{$t('新建')}}
                 </bk-button>
-            </span>
+            </cmdb-auth>
             <div class="filter-text fr">
                 <cmdb-selector
                     class="fl"
-                    font-size="14"
+                    font-size="medium"
                     :placeholder="$t('所有一级分类')"
                     :auto-select="false"
                     :allow-clear="true"
+                    :searchable="true"
                     :list="mainList"
                     v-model="filter['mainClassification']"
                     @on-selected="handleSelect">
                 </cmdb-selector>
                 <cmdb-selector
                     class="fl"
-                    font-size="14px"
+                    font-size="medium"
                     :placeholder="$t('所有二级分类')"
                     :auto-select="false"
                     :allow-clear="true"
+                    :searchable="true"
                     :list="secondaryList"
                     v-model="filter['secondaryClassification']"
                     :empty-text="emptyText"
@@ -43,11 +40,13 @@
                 </cmdb-selector>
                 <bk-input type="text"
                     class="filter-search fl"
-                    :placeholder="$t('模板名称搜索')"
+                    :placeholder="$t('请输入xx', { name: $t('模板名称') })"
                     :right-icon="'bk-icon icon-search'"
-                    font-size="large"
+                    clearable
+                    font-size="medium"
                     v-model.trim="filter.templateName"
-                    @enter="searchByTemplateName">
+                    @enter="getTableData(true)"
+                    @clear="handlePageChange(1)">
                 </bk-input>
             </div>
         </div>
@@ -56,66 +55,68 @@
             :data="table.list"
             :pagination="table.pagination"
             :max-height="$APP.height - 229"
+            :row-style="{ cursor: 'pointer' }"
+            @row-click="handleRowClick"
             @page-limit-change="handleSizeChange"
-            @page-change="handlePageChange">
-            <bk-table-column prop="name" :label="$t('模板名称')"></bk-table-column>
-            <bk-table-column prop="service_category" :label="$t('服务分类')"></bk-table-column>
+            @page-change="handlePageChange"
+            @sort-change="handleSortChange">
+            <bk-table-column prop="id" label="ID" class-name="is-highlight" show-overflow-tooltip sortable="custom"></bk-table-column>
+            <bk-table-column prop="name" :label="$t('模板名称')" show-overflow-tooltip sortable="custom"></bk-table-column>
+            <bk-table-column prop="service_category" :label="$t('服务分类')" show-overflow-tooltip></bk-table-column>
             <bk-table-column prop="process_template_count" :label="$t('进程数量')"></bk-table-column>
-            <bk-table-column prop="module_count" :label="$t('应用模块数')"></bk-table-column>
-            <bk-table-column prop="modifier" :label="$t('修改人')"></bk-table-column>
-            <bk-table-column prop="last_time" :label="$t('修改时间')">
+            <bk-table-column prop="module_count" :label="$t('已应用模块数')"></bk-table-column>
+            <bk-table-column prop="modifier" :label="$t('修改人')" sortable="custom"></bk-table-column>
+            <bk-table-column prop="last_time" :label="$t('修改时间')" show-overflow-tooltip sortable="custom">
                 <template slot-scope="{ row }">
                     {{$tools.formatTime(row.last_time, 'YYYY-MM-DD HH:mm')}}
                 </template>
             </bk-table-column>
             <bk-table-column prop="operation" :label="$t('操作')" fixed="right">
                 <template slot-scope="{ row }">
-                    <span
-                        v-cursor="{
-                            active: !$isAuthorized($OPERATION.U_SERVICE_TEMPLATE),
-                            auth: [$OPERATION.U_SERVICE_TEMPLATE]
-                        }">
-                        <bk-button class="mr10"
-                            :disabled="!$isAuthorized($OPERATION.U_SERVICE_TEMPLATE)"
+                    <cmdb-auth class="mr10" :auth="{ type: $OPERATION.U_SERVICE_TEMPLATE, relation: [bizId, row.id] }">
+                        <bk-button slot-scope="{ disabled }"
+                            theme="primary"
+                            :disabled="disabled"
                             :text="true"
-                            @click.stop="operationTemplate(row['id'])">
+                            @click.stop="operationTemplate(row['id'], 'edit')">
                             {{$t('编辑')}}
                         </bk-button>
-                    </span>
-                    <span class="text-primary"
-                        style="color: #c4c6cc !important; cursor: not-allowed;"
-                        v-if="row['module_count'] && $isAuthorized($OPERATION.D_SERVICE_TEMPLATE)"
-                        v-bk-tooltips.top="$t('不可删除')">
-                        {{$t('删除')}}
-                    </span>
-                    <span v-else
-                        v-cursor="{
-                            active: !$isAuthorized($OPERATION.D_SERVICE_TEMPLATE),
-                            auth: [$OPERATION.D_SERVICE_TEMPLATE]
-                        }">
-                        <bk-button
-                            :disabled="!$isAuthorized($OPERATION.D_SERVICE_TEMPLATE)"
-                            :text="true"
-                            @click.stop="deleteTemplate(row)">
-                            {{$t('删除')}}
-                        </bk-button>
-                    </span>
+                    </cmdb-auth>
+                    <cmdb-auth :auth="{ type: $OPERATION.D_SERVICE_TEMPLATE, relation: [bizId, row.id] }">
+                        <template slot-scope="{ disabled }">
+                            <span class="text-primary"
+                                style="color: #dcdee5 !important; cursor: not-allowed;"
+                                v-if="row['module_count'] && !disabled"
+                                v-bk-tooltips.top="$t('不可删除')">
+                                {{$t('删除')}}
+                            </span>
+                            <bk-button v-else
+                                theme="primary"
+                                :disabled="disabled"
+                                :text="true"
+                                @click.stop="deleteTemplate(row)">
+                                {{$t('删除')}}
+                            </bk-button>
+                        </template>
+                    </cmdb-auth>
                 </template>
             </bk-table-column>
+            <cmdb-table-empty
+                slot="empty"
+                :stuff="table.stuff"
+                :auth="{ type: $OPERATION.C_SERVICE_TEMPLATE, relation: [bizId] }"
+                @create="operationTemplate"
+            ></cmdb-table-empty>
         </bk-table>
     </div>
 </template>
 
 <script>
-    import { mapGetters, mapActions } from 'vuex'
-    import featureTips from '@/components/feature-tips/index'
+    import { mapActions, mapGetters } from 'vuex'
+    import { MENU_BUSINESS_HOST_AND_SERVICE } from '@/dictionary/menu-symbol'
     export default {
-        components: {
-            featureTips
-        },
         data () {
             return {
-                showFeatureTips: false,
                 filter: {
                     mainClassification: '',
                     secondaryClassification: '',
@@ -130,8 +131,13 @@
                         count: 0,
                         ...this.$tools.getDefaultPaginationConfig()
                     },
-                    defaultSort: '-last_time',
-                    sort: '-id'
+                    sort: '-id',
+                    stuff: {
+                        type: 'default',
+                        payload: {
+                            resource: this.$t('服务模板')
+                        }
+                    }
                 },
                 mainList: [],
                 secondaryList: [],
@@ -142,26 +148,30 @@
             }
         },
         computed: {
-            ...mapGetters(['featureTipsParams']),
+            ...mapGetters('objectBiz', ['bizId']),
             params () {
                 const id = this.categoryId
                     ? this.categoryId
                     : this.maincategoryId ? this.maincategoryId : 0
                 return {
+                    bk_biz_id: this.bizId,
                     service_category_id: id,
+                    search: this.filter.templateName,
                     page: {
                         start: (this.table.pagination.current - 1) * this.table.pagination.limit,
                         limit: this.table.pagination.limit,
-                        sort: this.table.defaultSort
+                        sort: this.table.sort
                     }
                 }
             },
             emptyText () {
                 return this.filter.mainClassification ? this.$t('没有二级分类') : this.$t('请选择一级分类')
+            },
+            hasFilter () {
+                return Object.values(this.filter).some(value => !!value)
             }
         },
         async created () {
-            this.showFeatureTips = this.featureTipsParams['serviceTemplate']
             try {
                 await this.getServiceClassification()
                 await this.getTableData()
@@ -172,39 +182,50 @@
         methods: {
             ...mapActions('serviceTemplate', ['searchServiceTemplate', 'deleteServiceTemplate']),
             ...mapActions('serviceClassification', ['searchServiceCategory']),
-            async getTableData () {
-                const templateData = await this.getTemplateData()
-                if (templateData.count && !templateData.info.length) {
-                    this.table.pagination.current -= 1
-                    this.getTableData()
-                }
-                this.table.pagination.count = templateData.count
-                this.table.allList = templateData.info.map(template => {
-                    const result = {
-                        ...template,
-                        ...template['service_template']
+            async getTableData (event) {
+                try {
+                    const templateData = await this.getTemplateData()
+                    if (templateData.count && !templateData.info.length) {
+                        this.table.pagination.current -= 1
+                        this.getTableData()
                     }
-                    const secondaryCategory = this.allSecondaryList.find(classification => classification['id'] === result['service_category_id'])
-                    const mainCategory = this.mainList.find(classification => secondaryCategory && classification['id'] === secondaryCategory['bk_parent_id'])
-                    const secondaryCategoryName = secondaryCategory ? secondaryCategory['name'] : '--'
-                    const mainCategoryName = mainCategory ? mainCategory['name'] : '--'
-                    result['service_category'] = `${mainCategoryName} / ${secondaryCategoryName}`
-                    return result
-                })
-                this.table.list = this.table.allList
+                    this.table.pagination.count = templateData.count
+                    this.table.allList = templateData.info.map(template => {
+                        const result = {
+                            ...template,
+                            ...template['service_template']
+                        }
+                        const secondaryCategory = this.allSecondaryList.find(classification => classification['id'] === result['service_category_id'])
+                        const mainCategory = this.mainList.find(classification => secondaryCategory && classification['id'] === secondaryCategory['bk_parent_id'])
+                        const secondaryCategoryName = secondaryCategory ? secondaryCategory['name'] : '--'
+                        const mainCategoryName = mainCategory ? mainCategory['name'] : '--'
+                        result['service_category'] = `${mainCategoryName} / ${secondaryCategoryName}`
+                        return result
+                    })
+                    this.table.stuff.type = this.hasFilter ? 'search' : 'default'
+                    this.table.list = this.table.allList
+                } catch ({ permission }) {
+                    if (permission) {
+                        this.table.stuff = {
+                            type: 'permission',
+                            payload: { permission }
+                        }
+                    }
+                }
             },
             getTemplateData () {
                 return this.searchServiceTemplate({
-                    params: this.$injectMetadata(this.params),
+                    params: this.params,
                     config: {
                         requestId: 'get_proc_service_template',
-                        cancelPrevious: true
+                        cancelPrevious: true,
+                        globalPermission: false
                     }
                 })
             },
             async getServiceClassification () {
                 const res = await this.searchServiceCategory({
-                    params: this.$injectMetadata(),
+                    params: { bk_biz_id: this.bizId },
                     config: {
                         requestId: 'get_proc_services_categories'
                     }
@@ -213,27 +234,24 @@
                 this.mainList = this.classificationList.filter(classification => !classification['bk_parent_id'])
                 this.allSecondaryList = this.classificationList.filter(classification => classification['bk_parent_id'])
             },
-            searchByTemplateName () {
-                const reg = new RegExp(this.filter.templateName, 'gi')
-                const filterList = this.table.allList.filter(template => reg.test(template['name']))
-                this.table.list = this.filter.templateName ? filterList : this.table.allList
-            },
             handleSelect (id, data) {
                 this.secondaryList = this.allSecondaryList.filter(classification => classification['bk_parent_id'] === id)
                 this.filter.secondaryClassification = ''
                 this.maincategoryId = id
-                this.getTableData()
+                this.getTableData(true)
             },
             handleSelectSecondary (id) {
                 this.categoryId = id
-                this.getTableData()
+                this.getTableData(true)
             },
-            operationTemplate (id) {
-                this.$router.push({
+            operationTemplate (id, type) {
+                this.$routerActions.redirect({
                     name: 'operationalTemplate',
                     params: {
-                        templateId: id
-                    }
+                        templateId: id,
+                        isEdit: type === 'edit'
+                    },
+                    history: true
                 })
             },
             deleteTemplate (template) {
@@ -244,9 +262,10 @@
                     confirmFn: async () => {
                         await this.deleteServiceTemplate({
                             params: {
-                                data: this.$injectMetadata({
+                                data: {
+                                    bk_biz_id: this.bizId,
                                     service_template_id: template.id
-                                })
+                                }
                             },
                             config: {
                                 requestId: 'delete_proc_service_template'
@@ -259,7 +278,7 @@
                 })
             },
             handleSortChange (sort) {
-                this.table.sort = sort
+                this.table.sort = this.$tools.getSort(sort, '-id')
                 this.handlePageChange(1)
             },
             handleSizeChange (size) {
@@ -269,6 +288,15 @@
             handlePageChange (page) {
                 this.table.pagination.current = page
                 this.getTableData()
+            },
+            handleRowClick (row, event, column) {
+                if (column.property === 'operation') return
+                this.operationTemplate(row.id)
+            },
+            handleTipsLinkClick () {
+                this.$routerActions.redirect({
+                    name: MENU_BUSINESS_HOST_AND_SERVICE
+                })
             }
         }
     }
@@ -276,7 +304,11 @@
 
 <style lang="scss" scoped>
     .template-wrapper {
-        padding: 0 20px;
+        padding: 15px 20px 0;
+        .tips-link {
+            color: #3A84FF;
+            margin: 0;
+        }
         .filter-text {
             .bk-select {
                 width: 184px;

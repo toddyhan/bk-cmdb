@@ -13,48 +13,53 @@
 package service
 
 import (
+	"configcenter/src/ac"
+	"configcenter/src/ac/iam"
+	"configcenter/src/apimachinery"
 	"configcenter/src/apimachinery/discovery"
-	"configcenter/src/apiserver/core"
-	compatiblev2 "configcenter/src/apiserver/core/compatiblev2/service"
-	"configcenter/src/auth"
-	"configcenter/src/auth/authcenter"
+	"configcenter/src/common/auth"
 	"configcenter/src/common/backbone"
 	"configcenter/src/common/errors"
 	"configcenter/src/common/rdapi"
+	"configcenter/src/storage/dal/redis"
 
 	"github.com/emicklei/go-restful"
 )
 
 // Service service methods
 type Service interface {
-	WebServices(auth authcenter.AuthConfig) []*restful.WebService
-	SetConfig(engine *backbone.Engine, httpClient HTTPClient, discovery discovery.DiscoveryInterface, authorize auth.Authorize)
+	WebServices() []*restful.WebService
+	SetConfig(engine *backbone.Engine, httpClient HTTPClient, discovery discovery.DiscoveryInterface,
+		clientSet apimachinery.ClientSetInterface, cache redis.Client, limiter *Limiter)
 }
 
 // NewService create a new service instance
 func NewService() Service {
-	return &service{
-		core: core.New(nil, compatiblev2.New(nil)),
-	}
+	return new(service)
 }
 
 type service struct {
 	engine     *backbone.Engine
 	client     HTTPClient
-	core       core.Core
 	discovery  discovery.DiscoveryInterface
-	authorizer auth.Authorizer
+	clientSet  apimachinery.ClientSetInterface
+	authorizer ac.AuthorizeInterface
+	cache      redis.Client
+	limiter    *Limiter
 }
 
-func (s *service) SetConfig(engine *backbone.Engine, httpClient HTTPClient, discovery discovery.DiscoveryInterface, authorize auth.Authorize) {
+func (s *service) SetConfig(engine *backbone.Engine, httpClient HTTPClient, discovery discovery.DiscoveryInterface,
+	clientSet apimachinery.ClientSetInterface, cache redis.Client, limiter *Limiter) {
 	s.engine = engine
 	s.client = httpClient
 	s.discovery = discovery
-	s.core.CompatibleV2Operation().SetConfig(engine)
-	s.authorizer = authorize
+	s.clientSet = clientSet
+	s.cache = cache
+	s.limiter = limiter
+	s.authorizer = iam.NewAuthorizer(clientSet)
 }
 
-func (s *service) WebServices(auth authcenter.AuthConfig) []*restful.WebService {
+func (s *service) WebServices() []*restful.WebService {
 	getErrFun := func() errors.CCErrorIf {
 		return s.engine.CCErr
 	}
@@ -63,15 +68,15 @@ func (s *service) WebServices(auth authcenter.AuthConfig) []*restful.WebService 
 	ws.Path(rootPath)
 	ws.Filter(s.engine.Metric().RestfulMiddleWare)
 	ws.Filter(rdapi.AllGlobalFilter(getErrFun))
+	ws.Filter(rdapi.RequestLogFilter())
+	ws.Filter(s.LimiterFilter())
 	ws.Produces(restful.MIME_JSON)
-	if s.authorizer.Enabled() == true {
+	if auth.EnableAuthorize() {
 		ws.Filter(s.authFilter(getErrFun))
 	}
 	ws.Route(ws.POST("/auth/verify").To(s.AuthVerify))
 	ws.Route(ws.GET("/auth/business_list").To(s.GetAnyAuthorizedAppList))
-	ws.Route(ws.GET("/auth/admin_entrance").To(s.GetAdminEntrance))
 	ws.Route(ws.POST("/auth/skip_url").To(s.GetUserNoAuthSkipURL))
-	ws.Route(ws.POST("/auth/convert").To(s.GetCmdbConvertResources))
 	ws.Route(ws.GET("{.*}").Filter(s.URLFilterChan).To(s.Get))
 	ws.Route(ws.POST("{.*}").Filter(s.URLFilterChan).To(s.Post))
 	ws.Route(ws.PUT("{.*}").Filter(s.URLFilterChan).To(s.Put))
@@ -80,6 +85,5 @@ func (s *service) WebServices(auth authcenter.AuthConfig) []*restful.WebService 
 	allWebServices := make([]*restful.WebService, 0)
 	allWebServices = append(allWebServices, ws)
 	allWebServices = append(allWebServices, s.RootWebService())
-	allWebServices = append(allWebServices, s.core.CompatibleV2Operation().WebService())
 	return allWebServices
 }

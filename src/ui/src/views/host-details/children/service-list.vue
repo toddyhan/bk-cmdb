@@ -4,23 +4,22 @@
             <bk-checkbox class="options-checkall"
                 :size="16"
                 v-model="isCheckAll"
+                :disabled="!instances.length"
                 :title="$t('全选本页')"
                 @change="handleCheckALL">
             </bk-checkbox>
-            <span style="display: inline-block;"
-                v-cursor="{
-                    active: !$isAuthorized($OPERATION.D_SERVICE_INSTANCE),
-                    auth: [$OPERATION.D_SERVICE_INSTANCE]
-                }">
-                <bk-button class="ml10"
-                    :disabled="!$isAuthorized($OPERATION.D_SERVICE_INSTANCE) || !checked.length"
+            <cmdb-auth :auth="HOST_AUTH.D_SERVICE_INSTANCE">
+                <bk-button slot-scope="{ disabled }"
+                    class="ml10"
+                    :disabled="disabled || !checked.length"
                     @click="batchDelete(!checked.length)">
                     {{$t('批量删除')}}
                 </bk-button>
-            </span>
+            </cmdb-auth>
             <div class="option-right fr">
                 <bk-checkbox class="options-checkbox"
                     :size="16"
+                    :disabled="!instances.length"
                     v-model="isExpandAll"
                     @change="handleExpandAll">
                     <span class="checkbox-label">{{$t('全部展开')}}</span>
@@ -29,34 +28,21 @@
                     <bk-search-select
                         ref="searchSelect"
                         :show-condition="false"
-                        :placeholder="$t('实例名称/标签')"
+                        :placeholder="$t('请输入实例名称或选择标签')"
                         :data="searchSelect"
                         v-model="searchSelectData"
                         @menu-child-condition-select="handleConditionSelect"
                         @change="handleSearch">
                     </bk-search-select>
                 </div>
-                <bk-popover
-                    ref="popoverCheckView"
-                    :always="true"
-                    :width="224"
-                    :tippy-options="{ zIndex: 999 }"
-                    theme="check-view-color"
-                    placement="bottom-end">
-                    <div slot="content" class="popover-main">
-                        <span>{{$t('标签或路径切换')}}</span>
-                        <i class="bk-icon icon-close" @click="handleCheckViewStatus"></i>
-                    </div>
-                    <div class="options-check-view">
-                        <i :class="['icon-cc-label', 'view-btn', 'pr10', { 'active': currentView === 'label' }]"
-                            :title="$t('显示标签')"
-                            @click="checkView('label')"></i>
-                        <span class="dividing-line"></span>
-                        <i :class="['icon-cc-instance-path', 'view-btn', 'pl10', { 'active': currentView === 'path' }]"
-                            :title="$t('显示拓扑')"
-                            @click="checkView('path')"></i>
-                    </div>
-                </bk-popover>
+                <cmdb-switcher-group v-model="currentView" tips-key="host_service_list_view_tips" :tips="$t('标签或路径切换')">
+                    <cmdb-switcher-item name="path" :tips="$t('显示拓扑')">
+                        <i class="icon-cc-instance-path"></i>
+                    </cmdb-switcher-item>
+                    <cmdb-switcher-item name="label" :tips="$t('显示标签')">
+                        <i class="icon-cc-label"></i>
+                    </cmdb-switcher-item>
+                </cmdb-switcher-group>
             </div>
         </div>
         <div class="tables">
@@ -67,16 +53,18 @@
                 :instance="instance"
                 :expanded="index === 0"
                 :current-view="currentView"
-                @show-process-details="handleShowProcessDetails"
                 @delete-instance="handleDeleteInstance"
                 @check-change="handleCheckChange">
             </service-instance-table>
         </div>
         <bk-table v-if="!instances.length" :data="[]" class="mb10">
-            <div slot="empty" class="empty-text">
-                <img src="../../../assets/images/empty-content.png" alt="">
-                <p>{{$t('暂无服务实例')}}，<span @click="handleGoAddInstance">{{$t('去服务拓扑添加')}}</span></p>
-            </div>
+            <cmdb-table-empty
+                slot="empty"
+                :stuff="emptyStuff">
+                <div class="empty-text">
+                    <p>{{$t('暂无服务实例')}}，<span @click="handleGoAddInstance">{{$t('去业务拓扑添加')}}</span></p>
+                </div>
+            </cmdb-table-empty>
         </bk-table>
         <bk-pagination v-if="instances.length"
             class="pagination"
@@ -88,30 +76,26 @@
             @change="handlePageChange"
             @limit-change="handleSizeChange">
         </bk-pagination>
-
-        <bk-sideslider
-            v-transfer-dom
-            :width="640"
-            :title="$t('进程详情')"
-            :is-show.sync="showDetails">
-            <cmdb-details slot="content" v-if="showDetails"
-                :show-options="false"
-                :inst="processInst"
-                :properties="properties"
-                :property-groups="propertyGroups">
-            </cmdb-details>
-        </bk-sideslider>
     </div>
 </template>
 
 <script>
-    import { MENU_BUSINESS_SERVICE_TOPOLOGY } from '@/dictionary/menu-symbol'
+    import {
+        MENU_BUSINESS_HOST_AND_SERVICE,
+        MENU_BUSINESS_DELETE_SERVICE
+    } from '@/dictionary/menu-symbol'
     import { mapState } from 'vuex'
     import serviceInstanceTable from './service-instance-table.vue'
+    import authMixin from '../mixin-auth'
+    import CmdbSwitcherGroup from '@/components/switcher/switcher-group'
+    import CmdbSwitcherItem from '@/components/switcher/switcher-item'
     export default {
         components: {
-            serviceInstanceTable
+            serviceInstanceTable,
+            CmdbSwitcherGroup,
+            CmdbSwitcherItem
         },
+        mixins: [authMixin],
         data () {
             return {
                 searchSelect: [
@@ -120,7 +104,7 @@
                         id: 0
                     },
                     {
-                        name: `${this.$t('标签')}(value)`,
+                        name: this.$t('标签值'),
                         id: 1,
                         children: [{
                             id: '',
@@ -129,7 +113,7 @@
                         conditions: []
                     },
                     {
-                        name: `${this.$t('标签')}(key)`,
+                        name: this.$t('标签键'),
                         id: 2,
                         children: [{
                             id: '',
@@ -148,86 +132,54 @@
                 isCheckAll: false,
                 filter: [],
                 instances: [],
-                currentView: 'label',
-                checkViewTipsStatus: this.$store.getters['featureTipsParams'].hostServiceInstanceCheckView,
-                historyLabels: {},
-                propertyGroups: [],
-                properties: [],
-                showDetails: false,
-                processInst: {}
+                currentView: 'path',
+                historyLabels: {}
             }
         },
         computed: {
             ...mapState('hostDetails', ['info']),
             host () {
                 return this.info.host || {}
+            },
+            emptyStuff () {
+                return {
+                    type: this.searchSelectData.length ? 'search' : 'default',
+                    payload: {}
+                }
+            }
+        },
+        watch: {
+            checked () {
+                this.isCheckAll = (this.checked.length === this.instances.length) && this.checked.length !== 0
             }
         },
         created () {
-            this.getProcessProperties()
-            this.getProcessPropertyGroups()
             this.getHostSeriveInstances()
             this.getHistoryLabel()
         },
-        mounted () {
-            if (this.checkViewTipsStatus) {
-                this.$refs.popoverCheckView.instance.show()
-            } else {
-                this.$refs.popoverCheckView.instance.destroy()
-            }
-        },
         methods: {
-            async getProcessProperties () {
-                try {
-                    const action = 'objectModelProperty/searchObjectAttribute'
-                    this.properties = await this.$store.dispatch(action, {
-                        params: {
-                            bk_obj_id: 'process',
-                            bk_supplier_account: this.$store.getters.supplierAccount
-                        },
-                        config: {
-                            requestId: 'get_service_process_properties',
-                            fromCache: true
-                        }
-                    })
-                } catch (e) {
-                    console.error(e)
-                    this.properties = []
-                }
-            },
-            async getProcessPropertyGroups () {
-                try {
-                    const action = 'objectModelFieldGroup/searchGroup'
-                    this.propertyGroups = await this.$store.dispatch(action, {
-                        objId: 'process',
-                        params: {},
-                        config: {
-                            requestId: 'get_service_process_property_groups',
-                            fromCache: true
-                        }
-                    })
-                } catch (e) {
-                    this.propertyGroups = []
-                    console.error(e)
-                }
-            },
             async getHostSeriveInstances () {
                 try {
                     const searchKey = this.searchSelectData.find(item => (item.id === 0 && item.hasOwnProperty('values'))
                         || (![0, 1].includes(item.id) && !item.hasOwnProperty('values')))
                     const data = await this.$store.dispatch('serviceInstance/getHostServiceInstances', {
-                        params: this.$injectMetadata({
+                        params: {
                             page: {
                                 start: (this.pagination.current - 1) * this.pagination.size,
                                 limit: this.pagination.size
                             },
                             bk_host_id: this.host.bk_host_id,
+                            bk_biz_id: this.info.biz[0].bk_biz_id,
                             search_key: searchKey
                                 ? searchKey.hasOwnProperty('values') ? searchKey.values[0].name : searchKey.name
                                 : '',
                             selectors: this.getSelectorParams()
-                        })
+                        }
                     })
+                    if (data.count && !data.info.length) {
+                        this.pagination.current -= 1
+                        this.getHostSeriveInstances()
+                    }
                     this.checked = []
                     this.isCheckAll = false
                     this.isExpandAll = false
@@ -283,7 +235,9 @@
             },
             async getHistoryLabel () {
                 const historyLabels = await this.$store.dispatch('instanceLabel/getHistoryLabel', {
-                    params: this.$injectMetadata({}),
+                    params: {
+                        bk_biz_id: this.info.biz[0].bk_biz_id
+                    },
                     config: {
                         requestId: 'getHistoryLabel',
                         cancelPrevious: true
@@ -313,12 +267,7 @@
                 this.$set(this.searchSelect[2], 'children', keyOption)
             },
             handleDeleteInstance (id) {
-                const filterInstances = this.instances.filter(instance => instance.id !== id)
-                if (!filterInstances.length && this.pagination.current > 1) {
-                    this.pagination.current -= 1
-                    this.getHostSeriveInstances()
-                }
-                this.instances = filterInstances
+                this.getHostSeriveInstances()
             },
             handleCheckALL (checked) {
                 this.searchSelectData = []
@@ -338,31 +287,12 @@
                 if (disabled) {
                     return false
                 }
-                this.$bkInfo({
-                    title: this.$t('确认删除实例'),
-                    subTitle: this.$t('即将删除选中的实例', { count: this.checked.length }),
-                    confirmFn: async () => {
-                        try {
-                            const serviceInstanceIds = this.checked.map(instance => instance.id)
-                            await this.$store.dispatch('serviceInstance/deleteServiceInstance', {
-                                config: {
-                                    data: this.$injectMetadata({
-                                        service_instance_ids: serviceInstanceIds
-                                    }),
-                                    requestId: 'batchDeleteServiceInstance'
-                                }
-                            })
-                            const filterInstances = this.instances.filter(instance => !serviceInstanceIds.includes(instance.id))
-                            if (!filterInstances.length && this.pagination.current > 1) {
-                                this.pagination.current -= 1
-                                this.getHostSeriveInstances()
-                            }
-                            this.instances = filterInstances
-                            this.checked = []
-                        } catch (e) {
-                            console.error(e)
-                        }
-                    }
+                this.$routerActions.redirect({
+                    name: MENU_BUSINESS_DELETE_SERVICE,
+                    params: {
+                        ids: this.checked.map(instance => instance.id).join('/')
+                    },
+                    history: true
                 })
             },
             handleCheckChange (checked, instance) {
@@ -405,13 +335,6 @@
                 this.pagination.size = size
                 this.getHostSeriveInstances()
             },
-            checkView (value) {
-                this.currentView = value
-            },
-            handleCheckViewStatus () {
-                this.$store.commit('setFeatureTipsParams', 'hostServiceInstanceCheckView')
-                this.$refs.popoverCheckView.instance.hide()
-            },
             handleConditionSelect (cur, index) {
                 const values = this.historyLabels[cur.id]
                 const children = values.map(item => {
@@ -426,13 +349,17 @@
                 el.showChildMenu(children)
             },
             handleGoAddInstance () {
-                this.$router.replace({
-                    name: MENU_BUSINESS_SERVICE_TOPOLOGY
+                const [biz] = this.info.biz
+                this.$routerActions.redirect({
+                    name: MENU_BUSINESS_HOST_AND_SERVICE,
+                    params: {
+                        bizId: biz.bk_biz_id
+                    },
+                    query: {
+                        node: `biz-${biz.bk_biz_id}`,
+                        ip: this.info.host.bk_host_innerip
+                    }
                 })
-            },
-            handleShowProcessDetails (inst) {
-                this.showDetails = true
-                this.processInst = inst
             }
         }
     }
@@ -483,7 +410,7 @@
         padding: 0 10px;
         border-radius: 2px;
         .view-btn {
-            color: #dcdee5;
+            color: #c4c6cc;
             font-size: 14px;
             height: 100%;
             line-height: 30px;

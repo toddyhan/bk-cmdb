@@ -15,21 +15,50 @@ package metrics
 import (
 	"context"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"configcenter/src/common"
 	"configcenter/src/common/blog"
-	"configcenter/src/common/util"
-
 	"github.com/emicklei/go-restful"
 	"github.com/mssola/user_agent"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
 
-const ns = "cmdb_"
+// a global register which is used to collect metrics we need.
+// it will be initialized when process is up for safe usage.
+// and then be revised later when service is initialized.
+var globalRegister prometheus.Registerer
+
+func init() {
+	// set default global register
+	globalRegister = prometheus.DefaultRegisterer
+}
+
+func Register() prometheus.Registerer {
+	return globalRegister
+}
+
+const Namespace = "cmdb_"
+
+// labels
+const (
+	LabelHandler     = "handler"
+	LabelHTTPStatus  = "status_code"
+	LabelOrigin      = "origin"
+	LabelProcessName = "process_name"
+	LabelAppCode     = "app_code"
+	LabelHost        = "host"
+)
+
+// labels
+const (
+	KeySelectedRoutePath string = "SelectedRoutePath"
+)
 
 // Config metrics config
 type Config struct {
@@ -46,41 +75,36 @@ type Service struct {
 	registry        prometheus.Registerer
 	requestTotal    *prometheus.CounterVec
 	requestDuration *prometheus.HistogramVec
-	requestInfligh  *Gauge
 }
 
 // NewService returns new metrics service
 func NewService(conf Config) *Service {
 	registry := prometheus.NewRegistry()
-	register := prometheus.WrapRegistererWith(prometheus.Labels{LableProcessName: conf.ProcessName, LabelHost: strings.Split(conf.ProcessInstance, ":")[0]}, registry)
+	register := prometheus.WrapRegistererWith(prometheus.Labels{LabelProcessName: conf.ProcessName, LabelHost: strings.Split(conf.ProcessInstance, ":")[0]}, registry)
+
+	// set up global register
+	globalRegister = register
+
 	srv := Service{conf: conf, registry: register}
 
 	srv.requestTotal = prometheus.NewCounterVec(
 		prometheus.CounterOpts{
-			Name: ns + "http_request_total",
+			Name: Namespace + "http_request_total",
 			Help: "http request total.",
 		},
-		[]string{LableHandler, LableHTTPStatus, LableOrigin},
+		[]string{LabelHandler, LabelHTTPStatus, LabelOrigin, LabelAppCode},
 	)
 	register.MustRegister(srv.requestTotal)
 
 	srv.requestDuration = prometheus.NewHistogramVec(
 		prometheus.HistogramOpts{
-			Name: ns + "http_request_duration_millisecond",
-			Help: "Histogram of latencies for HTTP requests.",
+			Name:    Namespace + "http_request_duration_millisecond",
+			Help:    "Histogram of latencies for HTTP requests.",
+			Buckets: []float64{10, 30, 50, 70, 100, 200, 300, 400, 500, 1000, 2000},
 		},
-		[]string{LableHandler},
+		[]string{LabelHandler, LabelAppCode},
 	)
 	register.MustRegister(srv.requestDuration)
-
-	srv.requestInfligh = NewGauge(
-		prometheus.GaugeOpts{
-			Name: ns + "http_request_in_flight",
-			Help: "current number of request being served.",
-		},
-	)
-	register.MustRegister(srv.requestInfligh)
-
 	register.MustRegister(prometheus.NewProcessCollector(prometheus.ProcessCollectorOpts{}))
 	register.MustRegister(prometheus.NewGoCollector())
 
@@ -89,20 +113,6 @@ func NewService(conf Config) *Service {
 	)
 	return &srv
 }
-
-// lables
-const (
-	LableHandler     = "handler"
-	LableHTTPStatus  = "status_code"
-	LableOrigin      = "origin"
-	LableProcessName = "process_name"
-	LabelHost        = "host"
-)
-
-// lables
-const (
-	KeySelectedRoutePath string = "SelectedRoutePath"
-)
 
 // Registry returns the prometheus.Registerer
 func (s *Service) Registry() prometheus.Registerer {
@@ -128,8 +138,6 @@ func (s *Service) RestfulWebService() *restful.WebService {
 // HTTPMiddleware is the http middleware for go-restful framework
 func (s *Service) HTTPMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		s.requestInfligh.Inc()
-		defer s.requestInfligh.Dec()
 
 		if r.RequestURI == "/metrics" || r.RequestURI == "/metrics/" {
 			s.ServeHTTP(w, r)
@@ -142,17 +150,27 @@ func (s *Service) HTTPMiddleware(next http.Handler) http.Handler {
 		before := time.Now()
 		next.ServeHTTP(resp, req)
 		if uri == "" {
-			uri = r.RequestURI
+			requestUrl, err := url.ParseRequestURI(r.RequestURI)
+			if err != nil {
+				return
+			}
+			uri = requestUrl.Path
 		}
-		duration := util.ToMillisecond(time.Since(before))
 
-		s.requestDuration.With(s.lable(LableHandler, uri)).Observe(duration)
-		s.requestTotal.With(s.lable(
-			LableHandler, uri,
-			LableHTTPStatus, strconv.Itoa(resp.StatusCode()),
-			LableOrigin, getOrigin(r.Header),
+		if !utf8.ValidString(uri) {
+			blog.Errorf("uri: %s not utf-8", uri)
+			return
+		}
+
+		s.requestDuration.With(s.label(LabelHandler, uri, LabelAppCode, r.Header.Get(common.BKHTTPRequestAppCode))).
+			Observe(float64(time.Since(before) / time.Millisecond))
+
+		s.requestTotal.With(s.label(
+			LabelHandler, uri,
+			LabelHTTPStatus, strconv.Itoa(resp.StatusCode()),
+			LabelOrigin, getOrigin(r.Header),
+			LabelAppCode, r.Header.Get(common.BKHTTPRequestAppCode),
 		)).Inc()
-
 	})
 }
 
@@ -166,25 +184,25 @@ func (s *Service) RestfulMiddleWare(req *restful.Request, resp *restful.Response
 	chain.ProcessFilter(req, resp)
 }
 
-func (s *Service) lable(lableKVs ...string) prometheus.Labels {
-	lables := prometheus.Labels{}
-	for index := 0; index < len(lableKVs); index += 2 {
-		lables[lableKVs[index]] = lableKVs[index+1]
+func (s *Service) label(labelKVs ...string) prometheus.Labels {
+	labels := prometheus.Labels{}
+	for index := 0; index < len(labelKVs); index += 2 {
+		labels[labelKVs[index]] = labelKVs[index+1]
 	}
-	return lables
+	return labels
 }
 
 func getOrigin(header http.Header) string {
 	if header.Get(common.BKHTTPOtherRequestID) != "" {
 		return "ESB"
 	}
-	if uastring := header.Get("User-Agent"); uastring != "" {
-		ua := user_agent.New(uastring)
+	if userString := header.Get("User-Agent"); userString != "" {
+		ua := user_agent.New(userString)
 		browser, _ := ua.Browser()
 		if browser != "" {
 			return "browser"
 		}
 	}
 
-	return "Unknow"
+	return "Unknown"
 }

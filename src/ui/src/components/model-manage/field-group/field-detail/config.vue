@@ -2,11 +2,11 @@
     <div class="form-label">
         <span class="label-text">{{$t('字段设置')}}</span>
         <label class="cmdb-form-checkbox cmdb-checkbox-small" v-if="isEditableShow">
-            <input type="checkbox" v-model="localValue.editable" :disabled="isReadOnly">
+            <input type="checkbox" tabindex="-1" v-model="localValue.editable" :disabled="isReadOnly || ispre">
             <span class="cmdb-checkbox-text">{{$t('可编辑')}}</span>
         </label>
-        <label class="cmdb-form-checkbox cmdb-checkbox-small" v-if="isRequiredShow">
-            <input type="checkbox" v-model="localValue.isrequired" :disabled="isReadOnly">
+        <label class="cmdb-form-checkbox cmdb-checkbox-small" v-if="isRequiredShow && !isMainLineModel">
+            <input type="checkbox" tabindex="-1" v-model="localValue.isrequired" :disabled="isReadOnly || ispre">
             <span class="cmdb-checkbox-text">{{$t('必填')}}</span>
         </label>
     </div>
@@ -30,7 +30,12 @@
             isrequired: {
                 type: Boolean,
                 default: false
-            }
+            },
+            isMainLineModel: {
+                type: Boolean,
+                default: false
+            },
+            ispre: Boolean
         },
         data () {
             return {
@@ -44,7 +49,9 @@
                     'longchar',
                     'objuser',
                     'timezone',
-                    'bool'
+                    'bool',
+                    'list',
+                    'organization'
                 ],
                 isrequiredMap: [
                     'singlechar',
@@ -54,7 +61,9 @@
                     'time',
                     'longchar',
                     'objuser',
-                    'timezone'
+                    'timezone',
+                    'list',
+                    'organization'
                 ],
                 localValue: {
                     editable: this.editable,

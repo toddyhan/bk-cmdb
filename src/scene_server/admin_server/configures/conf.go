@@ -18,6 +18,7 @@ import (
 	"fmt"
 	"io/ioutil"
 	"os"
+	"path"
 	"path/filepath"
 	"strings"
 
@@ -27,6 +28,9 @@ import (
 	"configcenter/src/common/errors"
 	"configcenter/src/common/language"
 	"configcenter/src/common/types"
+
+	"github.com/fsnotify/fsnotify"
+	"github.com/spf13/viper"
 )
 
 // ConfCenter discover configure changed. get, update configures
@@ -100,6 +104,9 @@ func (cc *ConfCenter) writeErrorRes2Center(errorres string) error {
 	}
 
 	data, err := json.Marshal(errcode)
+	if err != nil {
+		return fmt.Errorf("unmarshal resource failed, err: %s", err)
+	}
 	key := types.CC_SERVERROR_BASEPATH
 	return cc.confRegDiscv.Write(key, data)
 }
@@ -129,49 +136,28 @@ func (cc *ConfCenter) writeLanguageRes2Center(languageres string) error {
 	return cc.confRegDiscv.Write(key, data)
 }
 
-// WriteConfs2Center save configurs into center.
-// parameter[confRootPath] define the configurs root path, the specification name of the configure \
-// file is [modulename].conf \
+// WriteConfs2Center save configures into center.
+// parameter[confRootPath] define the configure's root path, the configure files are
+// redis.conf, mongodb.conf，common.conf，extra.conf
 func (cc *ConfCenter) writeConfs2Center(confRootPath string) error {
-	modules := make([]string, 0)
-	confFileSuffix := ".conf"
-
-	modules = append(modules, types.CC_MODULE_APISERVER)
-	modules = append(modules, types.CC_MODULE_DATACOLLECTION)
-	modules = append(modules, types.CC_MODULE_HOST)
-	// modules = append(modules, types.CC_MODULE_MIGRATE)
-	modules = append(modules, types.CC_MODULE_PROC)
-	modules = append(modules, types.CC_MODULE_TOPO)
-	modules = append(modules, types.CC_MODULE_WEBSERVER)
-	modules = append(modules, types.CC_MODULE_EVENTSERVER)
-	modules = append(modules, types.CC_MODULE_TXC)
-	modules = append(modules, types.CC_MODULE_CORESERVICE)
-	modules = append(modules, types.CC_MODULE_SYNCHRONZESERVER)
-
-	dirSubList, err := ioutil.ReadDir(confRootPath)
-	if err != nil {
-		blog.Errorf("get configure directory file error. err:%s", confRootPath)
-		return err
-	}
-	for _, item := range dirSubList {
-		if item.IsDir() {
-			continue
-		}
-
-		if strings.HasPrefix(item.Name(), types.CC_DISCOVERY_PREFIX) && strings.HasSuffix(item.Name(), confFileSuffix) {
-			modules = append(modules, strings.Replace(item.Name(), ".conf", "", 1))
-		}
+	configs := []string{
+		types.CCConfigureRedis,
+		types.CCConfigureMongo,
+		types.CCConfigureCommon,
+		types.CCConfigureExtra,
 	}
 
-	for _, moduleName := range modules {
+	confFileSuffix := ".yaml"
 
-		filePath := filepath.Join(confRootPath, moduleName+confFileSuffix)
-		key := types.CC_SERVCONF_BASEPATH + "/" + moduleName
+	for _, configName := range configs {
+		filePath := filepath.Join(confRootPath, configName+confFileSuffix)
+		key := types.CC_SERVCONF_BASEPATH + "/" + configName
 		if err := cc.writeConfigure(filePath, key); err != nil {
-			blog.Warnf("fail to write configure of module(%s) into center", moduleName)
+			blog.Warnf("fail to write configure of %s into center", configName)
 			continue
 		} else {
 			blog.Infof("write configure to center %s success", key)
+			cc.listenFileChange(key,filePath)
 		}
 	}
 
@@ -192,6 +178,12 @@ func (cc *ConfCenter) writeConfigure(confFilePath, key string) error {
 		return err
 	}
 
+	// check the configuration in the file
+	if err := cc.checkFile(confFilePath); err != nil {
+		blog.Errorf("There is a problem in configuration file %s, err:%s", confFilePath, err)
+		os.Exit(1)
+	}
+
 	blog.V(3).Infof("write configure(%s), key(%s), data(%s)", confFilePath, key, data)
 	if err := cc.confRegDiscv.Write(key, data); err != nil {
 		blog.Errorf("fail to write configure(%s) data into center. err:%s", key, err.Error())
@@ -199,4 +191,40 @@ func (cc *ConfCenter) writeConfigure(confFilePath, key string) error {
 	}
 
 	return nil
+}
+
+var redisViper *viper.Viper
+var mongodbViper *viper.Viper
+var commonViper *viper.Viper
+var extraViper *viper.Viper
+
+//此方法给adminserver实现热更新,监听每个文件，当文件发生更改时，将改后的数据重新写到注册中心
+func (cc *ConfCenter) listenFileChange(configcenterPath string,filePath string) {
+	v := viper.New()
+	base := path.Base(filePath)
+	split := strings.Split(base, ".")
+	fileName := split[0]
+	v.SetConfigName(fileName)
+	v.AddConfigPath(path.Dir(filePath))
+	err := v.ReadInConfig()
+	if err != nil {
+		blog.Warnf("fail to read configure from %s ", base)
+	}
+	v.WatchConfig()
+	v.OnConfigChange(func(e fsnotify.Event) {
+		if err := cc.writeConfigure(filePath, configcenterPath); err != nil {
+			blog.Warnf("fail to write configure of %s into center", base)
+		} else {
+			blog.Infof("write configure to center %s success", configcenterPath)
+		}
+	})
+	if fileName == types.CCConfigureRedis {
+		redisViper = v
+	} else if fileName == types.CCConfigureMongo {
+		mongodbViper = v
+	} else if fileName == types.CCConfigureCommon {
+		commonViper = v
+	} else if fileName == types.CCConfigureExtra {
+		extraViper = v
+	}
 }

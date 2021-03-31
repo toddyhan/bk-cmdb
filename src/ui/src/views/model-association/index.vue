@@ -1,32 +1,31 @@
 <template>
     <div class="relation-wrapper">
-        <feature-tips
-            :feature-name="'association'"
-            :show-tips="showFeatureTips"
-            :desc="$t('关联关系提示')"
-            :more-href="'https://docs.bk.tencent.com/cmdb/Introduction.html#%E6%A8%A1%E5%9E%8B%E5%85%B3%E8%81%94'"
-            @close-tips="showFeatureTips = false">
-        </feature-tips>
-        <p class="operation-box">
-            <span v-if="isAdminView" class="inline-block-middle"
-                v-cursor="{
-                    active: !$isAuthorized($OPERATION.C_RELATION),
-                    auth: [$OPERATION.C_RELATION]
-                }">
-                <bk-button theme="primary"
+        <cmdb-tips
+            class="mb10"
+            tips-key="associationTips"
+            :more-link="'https://docs.bk.tencent.com/cmdb/Introduction.html#%E6%A8%A1%E5%9E%8B%E5%85%B3%E8%81%94'">
+            {{$t('关联关系提示')}}
+        </cmdb-tips>
+        <p class="operation-box clearfix">
+            <cmdb-auth class="inline-block-middle"
+                :auth="{ type: $OPERATION.C_RELATION }">
+                <bk-button slot-scope="{ disabled }"
+                    theme="primary"
                     class="create-btn"
-                    :disabled="!$isAuthorized($OPERATION.C_RELATION)"
+                    :disabled="disabled"
                     @click="createRelation">
                     {{$t('新建')}}
                 </bk-button>
-            </span>
-            <label class="search-input">
+            </cmdb-auth>
+            <label class="search-input fr">
                 <!-- <i class="bk-icon icon-search" @click="searchRelation(true)"></i> -->
                 <bk-input type="text" class="cmdb-form-input"
+                    clearable
                     v-model.trim="searchText"
                     :right-icon="'bk-icon icon-search'"
                     :placeholder="$t('请输入关联类型名称')"
-                    font-size="large"
+                    font-size="medium"
+                    @clear="searchRelation(true)"
                     @enter="searchRelation(true)">
                 </bk-input>
             </label>
@@ -36,56 +35,63 @@
             :max-height="$APP.height - 229"
             :data="table.list"
             :pagination="table.pagination"
+            :row-style="{ cursor: 'pointer' }"
+            @row-click="handleShowDetails"
             @page-change="handlePageChange"
             @page-limit-change="handleSizeChange"
             @sort-change="handleSortChange">
-            <bk-table-column prop="bk_asst_id" :label="$t('唯一标识')" sortable="custom" class-name="is-highlight">
-                <template slot-scope="{ row }">
-                    <div style="cursor: pointer; padding: 10px 0;" @click.stop="handleShowDetails(row)">
-                        {{row['bk_asst_id']}}
-                    </div>
-                </template>
-            </bk-table-column>
-            <bk-table-column prop="bk_asst_name" :label="$t('名称')" sortable="custom">
+            <bk-table-column prop="bk_asst_id" :label="$t('唯一标识')" sortable="custom" class-name="is-highlight" show-overflow-tooltip></bk-table-column>
+            <bk-table-column prop="bk_asst_name" :label="$t('名称')" sortable="custom" show-overflow-tooltip>
                 <template slot-scope="{ row }">
                     {{row['bk_asst_name'] || '--'}}
                 </template>
             </bk-table-column>
-            <bk-table-column prop="src_des" :label="$t('源->目标描述')" sortable="custom"></bk-table-column>
-            <bk-table-column prop="dest_des" :label="$t('目标->源描述')" sortable="custom"></bk-table-column>
+            <bk-table-column prop="src_des" :label="$t('源->目标描述')" sortable="custom" show-overflow-tooltip></bk-table-column>
+            <bk-table-column prop="dest_des" :label="$t('目标->源描述')" sortable="custom" show-overflow-tooltip></bk-table-column>
             <bk-table-column prop="count" :label="$t('使用数')"></bk-table-column>
-            <bk-table-column v-if="isAdminView"
+            <bk-table-column
                 fixed="right"
+                prop="operation"
                 :label="$t('操作')">
                 <template slot-scope="{ row }">
-                    <span class="text-primary disabled mr10"
-                        v-cursor="{
-                            active: !$isAuthorized($OPERATION.U_RELATION),
-                            auth: [$OPERATION.U_RELATION]
-                        }"
-                        v-if="row.ispre || !$isAuthorized($OPERATION.U_RELATION)">
-                        {{$t('编辑')}}
-                    </span>
-                    <span class="text-primary mr10"
-                        v-else
-                        @click.stop="editRelation(row)">
-                        {{$t('编辑')}}
-                    </span>
-                    <span class="text-primary disabled"
-                        v-cursor="{
-                            active: !$isAuthorized($OPERATION.D_RELATION),
-                            auth: [$OPERATION.D_RELATION]
-                        }"
-                        v-if="row.ispre || !$isAuthorized($OPERATION.D_RELATION)">
-                        {{$t('删除')}}
-                    </span>
-                    <span class="text-primary"
-                        v-else
-                        @click.stop="deleteRelation(row)">
-                        {{$t('删除')}}
-                    </span>
+                    <cmdb-auth class="mr10"
+                        :auth="{ type: $OPERATION.U_RELATION, relation: [row.id] }"
+                        :ignore="row.ispre"
+                        v-bk-tooltips="{
+                            content: $t('禁止操作内置关联类型'),
+                            disabled: !row.ispre
+                        }">
+                        <bk-button slot-scope="{ disabled }"
+                            text
+                            theme="primary"
+                            :disabled="row.ispre || disabled"
+                            @click.stop="editRelation(row)">
+                            {{$t('编辑')}}
+                        </bk-button>
+                    </cmdb-auth>
+                    <cmdb-auth
+                        :auth="{ type: $OPERATION.D_RELATION, relation: [row.id] }"
+                        :ignore="row.ispre"
+                        v-bk-tooltips="{
+                            content: $t('禁止操作内置关联类型'),
+                            disabled: !row.ispre
+                        }">
+                        <bk-button slot-scope="{ disabled }"
+                            text
+                            theme="primary"
+                            :disabled="row.ispre || disabled"
+                            @click.stop="deleteRelation(row)">
+                            {{$t('删除')}}
+                        </bk-button>
+                    </cmdb-auth>
                 </template>
             </bk-table-column>
+            <cmdb-table-empty
+                slot="empty"
+                :stuff="table.stuff"
+                :auth="{ type: $OPERATION.C_RELATION }"
+                @create="createRelation"
+            ></cmdb-table-empty>
         </bk-table>
         <bk-sideslider
             v-transfer-dom
@@ -102,6 +108,7 @@
                 :is-edit="slider.isEdit"
                 :is-read-only="slider.isReadOnly"
                 :relation="slider.relation"
+                :save-btn-text="slider.isEdit ? $t('保存') : $t('提交')"
                 @saved="saveRelation"
                 @cancel="handleSliderBeforeClose">
             </the-relation>
@@ -110,17 +117,14 @@
 </template>
 
 <script>
-    import featureTips from '@/components/feature-tips/index'
     import theRelation from './_detail'
-    import { mapActions, mapGetters } from 'vuex'
+    import { mapActions } from 'vuex'
     export default {
         components: {
-            theRelation,
-            featureTips
+            theRelation
         },
         data () {
             return {
-                showFeatureTips: false,
                 slider: {
                     isShow: false,
                     isEdit: false,
@@ -137,13 +141,18 @@
                         ...this.$tools.getDefaultPaginationConfig()
                     },
                     defaultSort: '-ispre',
-                    sort: '-ispre'
+                    sort: '-ispre',
+                    stuff: {
+                        type: 'default',
+                        payload: {
+                            resource: this.$t('关联类型')
+                        }
+                    }
                 },
                 sendSearchText: ''
             }
         },
         computed: {
-            ...mapGetters(['isAdminView', 'featureTipsParams']),
             searchParams () {
                 const params = {
                     page: {
@@ -166,7 +175,6 @@
         },
         created () {
             this.searchRelation()
-            this.showFeatureTips = this.featureTipsParams['association']
         },
         methods: {
             ...mapActions('objectAssociation', [
@@ -178,6 +186,7 @@
                 if (fromClick) {
                     this.sendSearchText = this.searchText
                     this.table.pagination.current = 1
+                    this.table.stuff.type = 'search'
                 }
                 this.searchAssociationType({
                     params: this.searchParams,
@@ -275,7 +284,8 @@
                 this.slider.isShow = false
                 return true
             },
-            handleShowDetails (relation) {
+            handleShowDetails (relation, event, column = {}) {
+                if (column.property === 'operation') return
                 this.slider.title = this.$t('关联类型详情')
                 this.slider.relation = relation
                 this.slider.isReadOnly = true
@@ -288,7 +298,7 @@
 
 <style lang="scss" scoped>
     .relation-wrapper {
-        padding: 0 20px;
+        padding: 15px 20px 0;
     }
     .operation-box {
         margin: 0 0 14px 0;

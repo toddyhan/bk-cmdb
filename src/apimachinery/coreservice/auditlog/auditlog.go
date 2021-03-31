@@ -21,8 +21,8 @@ import (
 )
 
 type AuditClientInterface interface {
-	SaveAuditLog(ctx context.Context, h http.Header, logs ...metadata.SaveAuditLogParams) (*metadata.Response, error)
-	SearchAuditLog(ctx context.Context, h http.Header, param metadata.QueryInput) (*metadata.AuditQueryResult, error)
+	SaveAuditLog(ctx context.Context, h http.Header, logs ...metadata.AuditLog) (*metadata.Response, error)
+	SearchAuditLog(ctx context.Context, h http.Header, param metadata.QueryCondition) (*metadata.AuditQueryResult, error)
 }
 
 func NewAuditClientInterface(client rest.ClientInterface) AuditClientInterface {

@@ -13,17 +13,19 @@
 package metadata
 
 import (
-	"database/sql/driver"
 	"fmt"
+	"reflect"
 	"strconv"
 	"strings"
 	"time"
 
+	"database/sql/driver"
+
 	"github.com/coccyx/timeparser"
-	"github.com/rentiansheng/bk_bson/bson"
-	"github.com/rentiansheng/bk_bson/bson/bsontype"
-	"github.com/rentiansheng/bk_bson/x/bsonx"
-	mgobson "gopkg.in/mgo.v2/bson"
+	"github.com/mitchellh/mapstructure"
+	"go.mongodb.org/mongo-driver/bson"
+	"go.mongodb.org/mongo-driver/bson/bsontype"
+	"go.mongodb.org/mongo-driver/x/bsonx"
 )
 
 type Time struct {
@@ -76,25 +78,6 @@ func (t *Time) UnmarshalJSON(data []byte) error {
 		*t = Time{time.Unix(timestamp, 0)}
 	}
 	return fmt.Errorf("parse unknow time format: %s, %v", data, err)
-}
-
-// GetBSON implements bson.GetBSON interface
-func (t Time) GetBSON() (interface{}, error) {
-	return t.Time, nil
-}
-
-// SetBSON implements bson.SetBSON interface
-func (t *Time) SetBSON(raw mgobson.Raw) error {
-	if raw.Kind == 0x09 {
-		// 0x09 timestamp
-		return raw.Unmarshal(&t.Time)
-	}
-
-	// for compatibility purpose
-	tt := tmptime{}
-	err := raw.Unmarshal(&tt)
-	t.Time = tt.Time
-	return err
 }
 
 // MarshalBSONValue implements bson.MarshalBSON interface
@@ -160,4 +143,62 @@ type tmptime struct {
 // Now retruns now
 func Now() Time {
 	return Time{time.Now().UTC()}
+}
+
+var local = Now()
+
+func StringToTimeDurationHookFunc() mapstructure.DecodeHookFunc {
+	return func(
+		f reflect.Type,
+		t reflect.Type,
+		data interface{}) (interface{}, error) {
+		if f.Kind() != reflect.String {
+			return data, nil
+		}
+
+		isLocalTimeType := t == reflect.TypeOf(local)
+		isStdTimeType := t == reflect.TypeOf(local.Time)
+		if !isLocalTimeType && !isStdTimeType {
+			return data, nil
+		}
+		parsed, err := ParseTime(data)
+		if err != nil {
+			return nil, err
+		}
+		if isLocalTimeType {
+			return Time{parsed}, nil
+		}
+		return parsed, nil
+	}
+}
+
+func ParseTime(data interface{}) (time.Time, error) {
+	// Convert it by parsing
+	var parsed time.Time
+	var err error
+	parsed, err = time.ParseInLocation(`"2006-01-02 15:04:05"`, data.(string), time.UTC)
+	if err == nil {
+		return parsed, nil
+	}
+
+	parsed, err = time.Parse(time.RFC3339, strings.Trim(data.(string), "\""))
+	if err == nil {
+		return parsed, nil
+	}
+
+	parsed, err = timeparser.TimeParser(strings.Trim(data.(string), "\""))
+	if err == nil {
+		return parsed, nil
+	}
+
+	timestamp, err := strconv.ParseInt(fmt.Sprintf("%s", data), 10, 64)
+	if err == nil {
+		return time.Unix(timestamp, 0), nil
+	}
+	return time.Now(), err
+}
+
+// ParseTimeInUnixTS return Time object base on unix timestamp.
+func ParseTimeInUnixTS(sec, nsec int64) Time {
+	return Time{time.Unix(sec, nsec)}
 }

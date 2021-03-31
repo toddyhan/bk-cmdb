@@ -99,19 +99,19 @@ type DeleteAssociationObjectResult struct {
 	Data     string `json:"data"`
 }
 
-type SearchAssociationInstRequestCond struct {
-	ObjectAsstID string  `field:"bk_obj_asst_id" json:"bk_obj_asst_id,omitempty" bson:"bk_obj_asst_id,omitempty"`
-	AsstID       string  `field:"bk_asst_id" json:"bk_asst_id,omitempty" bson:"bk_asst_id,omitempty"`
-	ObjectID     string  `field:"bk_obj_id" json:"bk_obj_id,omitempty" bson:"bk_obj_id,omitempty"`
-	AsstObjID    string  `field:"bk_asst_obj_id" json:"bk_asst_obj_id,omitempty" bson:"bk_asst_obj_id,omitempty"`
-	InstID       []int64 `field:"bk_inst_id" json:"bk_inst_id,omitempty" bson:"bk_inst_id,omitempty"`
-	AsstInstID   []int64 `field:"bk_asst_inst_id" json:"bk_asst_inst_id,omitempty" bson:"bk_asst_inst_id,omitempty"`
-	BothObjectID string  `field:"both_obj_id" json:"both_obj_id" bson:"both_obj_id"`
-	BothInstID   []int64 `field:"both_inst_id" json:"both_inst_id" bson:"both_inst_id"`
+type SearchAssociationRelatedInstRequestCond struct {
+	ObjectID string `field:"bk_obj_id" json:"bk_obj_id,omitempty" bson:"bk_obj_id,omitempty"`
+	InstID   int64  `field:"bk_inst_id" json:"bk_inst_id,omitempty" bson:"bk_inst_id,omitempty"`
 }
 
 type SearchAssociationInstRequest struct {
 	Condition mapstr.MapStr `json:"condition"` // construct condition mapstr by condition.Condition
+}
+
+type SearchAssociationRelatedInstRequest struct {
+	Fields    []string                                `json:"fields"`
+	Page      BasePage                                `json:"page"`
+	Condition SearchAssociationRelatedInstRequestCond `json:"condition"`
 }
 
 type SearchAssociationInstResult struct {
@@ -133,9 +133,18 @@ type DeleteAssociationInstRequest struct {
 	Condition mapstr.MapStr `json:"condition"`
 }
 
+type DeleteAssociationInstBatchRequest struct {
+	ID []int64 `json:"id"`
+}
+
 type DeleteAssociationInstResult struct {
 	BaseResp `json:",inline"`
 	Data     string `json:"data"`
+}
+
+type DeleteAssociationInstBatchResult struct {
+	BaseResp `json:",inline"`
+	Data     int `json:"data"`
 }
 
 type AssociationKindIDs struct {
@@ -186,8 +195,6 @@ type AssociationKind struct {
 	Direction AssociationDirection `field:"direction" json:"direction" bson:"direction"`
 	// whether this is a pre-defined kind.
 	IsPre *bool `field:"ispre" json:"ispre" bson:"ispre"`
-	//	define the metadata of association kind
-	Metadata `field:"metadata" json:"metadata" bson:"metadata"`
 }
 
 func (cli *AssociationKind) Parse(data mapstr.MapStr) (*AssociationKind, error) {
@@ -248,9 +255,6 @@ type Association struct {
 	ClassificationID string `field:"bk_classification_id" json:"-" bson:"-"`
 	ObjectIcon       string `field:"bk_obj_icon" json:"-" bson:"-"`
 	ObjectName       string `field:"bk_obj_name" json:"-" bson:"-"`
-
-	//	define the metadata of assocication
-	Metadata `field:"metadata" json:"metadata" bson:"metadata"`
 }
 
 // return field means which filed is set but is forbidden to update.
@@ -306,24 +310,24 @@ func (cli *Association) ToMapStr() mapstr.MapStr {
 // InstAsst an association definition between instances.
 type InstAsst struct {
 	// sequence ID
-	ID int64 `field:"id" json:"id"`
+	ID int64 `field:"id" json:"id,omitempty"`
 	// inst id associate to ObjectID
-	InstID int64 `field:"bk_inst_id" json:"bk_inst_id" bson:"bk_inst_id"`
+	InstID int64 `field:"bk_inst_id" json:"bk_inst_id,omitempty" bson:"bk_inst_id"`
 	// association source ObjectID
-	ObjectID string `field:"bk_obj_id" json:"bk_obj_id" bson:"bk_obj_id"`
+	ObjectID string `field:"bk_obj_id" json:"bk_obj_id,omitempty" bson:"bk_obj_id"`
 	// inst id associate to AsstObjectID
-	AsstInstID int64 `field:"bk_asst_inst_id" json:"bk_asst_inst_id"  bson:"bk_asst_inst_id"`
+	AsstInstID int64 `field:"bk_asst_inst_id" json:"bk_asst_inst_id,omitempty"  bson:"bk_asst_inst_id"`
 	// association target ObjectID
-	AsstObjectID string `field:"bk_asst_obj_id" json:"bk_asst_obj_id" bson:"bk_asst_obj_id"`
+	AsstObjectID string `field:"bk_asst_obj_id" json:"bk_asst_obj_id,omitempty" bson:"bk_asst_obj_id"`
 	// bk_supplier_account
-	OwnerID string `field:"bk_supplier_account" json:"bk_supplier_account" bson:"bk_supplier_account"`
+	OwnerID string `field:"bk_supplier_account" json:"bk_supplier_account,omitempty" bson:"bk_supplier_account"`
 	// association id between two object
-	ObjectAsstID string `field:"bk_obj_asst_id" json:"bk_obj_asst_id" bson:"bk_obj_asst_id"`
+	ObjectAsstID string `field:"bk_obj_asst_id" json:"bk_obj_asst_id,omitempty" bson:"bk_obj_asst_id"`
 	// association kind id
-	AssociationKindID string `field:"bk_asst_id" json:"bk_asst_id" bson:"bk_asst_id"`
+	AssociationKindID string `field:"bk_asst_id" json:"bk_asst_id,omitempty" bson:"bk_asst_id"`
 
-	//	define the metadata of assocication kind
-	Metadata `field:"metadata" json:"metadata" bson:"metadata"`
+	// BizID the business ID
+	BizID int64 `field:"bk_biz_id" json:"bk_biz_id,omitempty" bson:"bk_biz_id"`
 }
 
 func (asst InstAsst) GetInstID(objID string) (instID int64, ok bool) {
@@ -401,8 +405,11 @@ type TopoInst struct {
 	ObjName              string `json:"bk_obj_name"`
 	Default              int    `json:"default"`
 	HostCount            int64  `json:"host_count"`
-	ServiceInstanceCount int64  `json:"service_instance_count"`
-	ServiceTemplateID    int64  `json:"service_template_id"`
+	ServiceInstanceCount int64  `json:"service_instance_count,omitempty"`
+	ServiceTemplateID    int64  `json:"service_template_id,omitempty"`
+	SetTemplateID        int64  `json:"set_template_id,omitempty"`
+	HostApplyEnabled     *bool  `json:"host_apply_enabled,omitempty"`
+	HostApplyRuleCount   *int64 `json:"host_apply_rule_count,omitempty"`
 }
 
 // TopoInstRst 拓扑实例
@@ -452,4 +459,43 @@ type ResponeImportAssociationData struct {
 // ResponeImportAssociation  import association result
 type RequestImportAssociation struct {
 	AssociationInfoMap map[int]ExcelAssocation `json:"association_info"`
+}
+
+// RequestInstAssociationObjectID 要求根据实例信息（实例的模型ID，实例ID）和模型ID（关联关系中的源，目的模型ID）, 返回关联关系的请求参数
+type RequestInstAssociationObjectID struct {
+	Condition RequestInstAssociationObjectIDCondition `json:"condition"`
+	Page      BasePage                                `json:"page"`
+}
+
+// RequestInstAssociationObjectIDCondition  query condition
+type RequestInstAssociationObjectIDCondition struct {
+	// 实例得模型ID
+	ObjectID string `json:"bk_obj_id"`
+	// 实例ID
+	InstID int64 `json:"bk_inst_id"`
+	// ObjectID是否为目标模型， 默认false， 关联关系中的源模型，否则是目标模型
+	IsTargetObject bool `json:"is_target_object"`
+
+	// 关联对象的模型ID
+	AssociationObjectID string `json:"association_obj_id"`
+}
+
+// InstBaseInfo instance base info
+type InstBaseInfo struct {
+	ID   int64  `json:"bk_inst_id"`
+	Name string `json:"bk_inst_name"`
+}
+
+type FindTopoPathRequest struct {
+	Nodes []TopoNode `json:"topo_nodes" mapstructure:"topo_nodes"`
+}
+
+type TopoPathResult struct {
+	Nodes []NodeTopoPath `json:"nodes" mapstructure:"nodes"`
+}
+
+type NodeTopoPath struct {
+	BizID int64                       `json:"bk_biz_id" mapstructure:"bk_biz_id"`
+	Node  TopoNode                    `json:"topo_node" mapstructure:"topo_node"`
+	Path  []*TopoInstanceNodeSimplify `json:"topo_path" mapstructure:"topo_path"`
 }

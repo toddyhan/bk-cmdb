@@ -8,7 +8,7 @@
                 :key="index"
                 :title="model['bk_obj_name']"
                 @click="redirect(model)">
-                <i :class="['model-icon','icon', model['bk_obj_icon']]"></i>
+                <i :class="['model-icon','icon', model['bk_obj_icon'], { 'nonpre-mode': !model['ispre'] }]"></i>
                 <span class="model-name">{{model['bk_obj_name']}}</span>
                 <i class="model-star bk-icon"
                     :class="[isCollected(model) ? 'icon-star-shape' : 'icon-star']"
@@ -60,7 +60,7 @@
             getInstanceCount (model) {
                 const data = this.instanceCount.find(data => data.bk_obj_id === model.bk_obj_id)
                 if (data) {
-                    return data.instance_count > 999 ? '999+' : data.instance_count
+                    return data.instance_count
                 }
                 return 0
             },
@@ -70,11 +70,11 @@
                     biz: MENU_RESOURCE_BUSINESS
                 }
                 if (map.hasOwnProperty(model.bk_obj_id)) {
-                    this.$router.push({
+                    this.$routerActions.redirect({
                         name: map[model.bk_obj_id]
                     })
                 } else {
-                    this.$router.push({
+                    this.$routerActions.redirect({
                         name: MENU_RESOURCE_INSTANCE,
                         params: {
                             objId: model.bk_obj_id
@@ -191,7 +191,10 @@
             }
             .model-icon{
                 font-size: 16px;
-                color: #979BA5;
+                color: #798AAD;
+            }
+            .nonpre-mode {
+                color: #3A84FF !important;
             }
             .model-name{
                 max-width: calc(100% - 100px);

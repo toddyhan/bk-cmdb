@@ -17,17 +17,13 @@ import (
 )
 
 const (
-	ClassificationFieldID                   = "id"
-	ClassFieldClassificationID              = "bk_classification_id"
-	ClassFieldClassificationName            = "bk_classification_name"
-	ClassFieldClassificationType            = "bk_classification_type"
-	ClassFieldClassificationIcon            = "bk_classification_icon"
-	ClassFieldClassificationSupplierAccount = "bk_supplier_account"
+	ClassificationFieldID        = "id"
+	ClassFieldClassificationID   = "bk_classification_id"
+	ClassFieldClassificationName = "bk_classification_name"
 )
 
 // Classification the classification metadata definition
 type Classification struct {
-	Metadata           `field:"metadata" json:"metadata" bson:"metadata"`
 	ID                 int64  `field:"id" json:"id" bson:"id"`
 	ClassificationID   string `field:"bk_classification_id"  json:"bk_classification_id" bson:"bk_classification_id"`
 	ClassificationName string `field:"bk_classification_name" json:"bk_classification_name" bson:"bk_classification_name"`

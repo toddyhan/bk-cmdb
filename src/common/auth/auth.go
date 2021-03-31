@@ -24,7 +24,7 @@ var enableAuth = true
 var EnableAuthFlag *authValue
 var once = sync.Once{}
 
-type authValue struct {}
+type authValue struct{}
 
 func (a *authValue) String() string {
 	return strconv.FormatBool(enableAuth)
@@ -55,10 +55,9 @@ func init() {
 func setEnableAuth(enable bool) {
 	once.Do(func() {
 		enableAuth = enable
-		blog.Infof("[auth] enableAuth: %v", enableAuth)
 	})
 }
 
-func IsAuthed() bool {
+func EnableAuthorize() bool {
 	return enableAuth
 }

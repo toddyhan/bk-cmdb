@@ -29,7 +29,6 @@ type ProcInstanceModel struct {
 	SetID          int64  `json:"bk_set_id" bson:"bk_set_id,omitempty"`
 	ModuleID       int64  `json:"bk_module_id" bson:"bk_module_id,omitempty"`
 	ProcID         int64  `json:"bk_process_id" bson:"bk_process_id"`
-	FuncID         int64  `json:"bk_func_id" bson:"bk_func_id"`
 	ProcInstanceID uint64 `json:"proc_instance_id" bson:"proc_instance_id"`
 	HostID         int64  `json:"bk_host_id" bson:"bk_host_id"`
 	HostInstanID   uint64 `json:"bk_host_instance_id" bson:"bk_host_instance_id"`
@@ -41,7 +40,6 @@ type MatchProcInstParam struct {
 	ApplicationID  int64  `json:"bk_biz_id" bson:"bk_biz_id"`
 	SetName        string `json:"bk_set_name" bson:"bk_set_name"`
 	ModuleName     string `json:"bk_module_name" bson:"bk_module_name"`
-	FuncID         string `json:"bk_func_id" bson:"bk_func_id"`
 	HostInstanceID string `json:"bk_host_instance_id" bson:"bk_host_instance_id"`
 }
 
@@ -64,10 +62,9 @@ type ProcInstModelResult struct {
 }
 
 type GseHost struct {
-	HostID       int64  `json:"bk_host_id,omitempty"`
-	Ip           string `json:"ip,omitempty"`
-	BkCloudId    int64  `json:"bk_cloud_id"`
-	BkSupplierId int64  `json:"bk_supplier_id"`
+	HostID    int64  `json:"bk_host_id,omitempty"`
+	Ip        string `json:"ip,omitempty"`
+	BkCloudId int64  `json:"bk_cloud_id"`
 }
 
 type GseProcMeta struct {
@@ -257,6 +254,57 @@ type EsbUserListResponse struct {
 	Data            []UserInfo `json:"data"`
 }
 
+type EsbListUserResponse struct {
+	EsbBaseResponse `json:",inline"`
+	Data            []ListUserItem `json:"data"`
+}
+
+type ListUserItem struct {
+	ID          int64  `json:"id"`
+	Username    string `json:"username"`
+	DisplayName string `json:"display_name"`
+}
+
+type EsbDepartmentResponse struct {
+	EsbBaseResponse `json:",inline"`
+	Data            DepartmentData `json:"data"`
+}
+
+type DepartmentData struct {
+	Count   int64            `json:"count"`
+	Results []DepartmentItem `json:"results"`
+}
+
+type DepartmentItem struct {
+	ID          int64      `json:"id"`
+	Parent      int64      `json:"parent"`
+	Name        string     `json:"name"`
+	FullName    string     `json:"full_name"`
+	Level       int        `json:"level"`
+	HasChildren bool       `json:"has_children"`
+	Ancestors   []Ancestor `json:"ancestors"`
+}
+
+type Ancestor struct {
+	ID   int64  `json:"id"`
+	Name string `json:"name"`
+}
+
+type EsbDepartmentProfileResponse struct {
+	EsbBaseResponse `json:",inline"`
+	Data            DepartmentProfileData `json:"data"`
+}
+
+type DepartmentProfileData struct {
+	Count   int64                   `json:"count"`
+	Results []DepartmentProfileItem `json:"results"`
+}
+
+type DepartmentProfileItem struct {
+	ID   int64  `json:"id"`
+	Name string `json:"username"`
+}
+
 type EsbBaseResponse struct {
 	Result       bool   `json:"result"`
 	Code         int    `json:"code"`
@@ -275,4 +323,12 @@ type TemplateVersion struct {
 	Content     string `json:"content" field:"content"`
 	Status      string `json:"status" field:"status"`
 	Description string `json:"description" field:"description"`
+}
+
+type ListProcessRelatedInfoResponse struct {
+	BaseResp `json:",inline"`
+	Data     struct {
+		Count int                            `json:"count"`
+		Info  []ListProcessRelatedInfoResult `json:"info"`
+	} `json:"data"`
 }

@@ -15,7 +15,6 @@
                     @toggle="toggleSelector">
                     <div class="text-content" slot="trigger" @click="toggleSelector(true)" :class="{ 'open': attribute.isShow }">
                         <span>{{selectedName}}</span>
-                        <!-- <i class="bk-icon icon-angle-down"></i> -->
                     </div>
                     <bk-option v-for="(option, index) in attribute.list"
                         :key="index"
@@ -25,26 +24,12 @@
                 </bk-select>
             </div>
         </div>
-        <!-- <div class="verification-selector-mask" v-if="attribute.isShow"></div> -->
-        <!-- <div class="radio-box">
-            <label class="label-text">
-                {{$t('属性为空值是否校验')}}
-            </label>
-            <label class="cmdb-form-radio cmdb-radio-small">
-                <input type="radio" name="required" :value="true" :disabled="isReadOnly" v-model="verificationInfo['must_check']">
-                <span class="cmdb-radio-text">{{$t('是')}}</span>
-            </label>
-            <label class="cmdb-form-radio cmdb-radio-small">
-                <input type="radio" name="required" :value="false" :disabled="isReadOnly" v-model="verificationInfo['must_check']">
-                <span class="cmdb-radio-text">{{$t('否')}}</span>
-            </label>
-        </div> -->
         <div class="btn-group">
             <bk-button theme="primary"
                 :disabled="isReadOnly || !verificationInfo.selected.length"
                 :loading="$loading(['createObjectUniqueConstraints', 'updateObjectUniqueConstraints'])"
                 @click="saveVerification">
-                {{$t('确定')}}
+                {{isEdit ? $t('保存') : $t('提交')}}
             </bk-button>
             <bk-button theme="default" @click="cancel">
                 {{$t('取消')}}
@@ -81,13 +66,13 @@
                 attribute: {
                     isShow: false,
                     list: this.attributeList
-                }
+                },
+                originVerificationInfo: {}
             }
         },
         computed: {
             ...mapGetters('objectModel', [
-                'activeModel',
-                'isInjectable'
+                'activeModel'
             ]),
             selectedName () {
                 const nameList = []
@@ -111,12 +96,22 @@
                     })
                 })
                 return params
+            },
+            changedValues () {
+                const changedValues = {}
+                for (const propertyId in this.verificationInfo) {
+                    if (JSON.stringify(this.verificationInfo[propertyId]) !== JSON.stringify(this.originVerificationInfo[propertyId])) {
+                        changedValues[propertyId] = this.verificationInfo[propertyId]
+                    }
+                }
+                return changedValues
             }
         },
         created () {
             if (this.isEdit) {
                 this.initData()
             }
+            this.originVerificationInfo = this.$tools.clone(this.verificationInfo)
         },
         methods: {
             ...mapActions('objectUnique', [
@@ -140,10 +135,7 @@
                     await this.updateObjectUniqueConstraints({
                         id: this.verification.id,
                         objId: this.activeModel['bk_obj_id'],
-                        params: this.$injectMetadata(this.params, {
-                            clone: true,
-                            inject: this.isInjectable
-                        }),
+                        params: this.params,
                         config: {
                             requestId: 'updateObjectUniqueConstraints'
                         }
@@ -152,10 +144,7 @@
                 } else {
                     await this.createObjectUniqueConstraints({
                         objId: this.activeModel['bk_obj_id'],
-                        params: this.$injectMetadata(this.params, {
-                            clone: true,
-                            inject: this.isInjectable
-                        }),
+                        params: this.params,
                         config: {
                             requestId: 'createObjectUniqueConstraints'
                         }
@@ -198,18 +187,7 @@
                         line-height: 24px;
                         overflow: visible;
                         border-color: $cmdbBorderFocusColor;
-                        .icon-angle-down {
-                            color: $cmdbBorderFocusColor;
-                            transform: rotate(180deg);
-                        }
                     }
-                }
-                .icon-angle-down {
-                    position: absolute;
-                    right: 10px;
-                    top: 12px;
-                    font-size: 12px;
-                    transition: transform .2s linear;
                 }
             }
         }

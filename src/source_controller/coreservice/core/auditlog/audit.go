@@ -13,104 +13,103 @@
 package auditlog
 
 import (
-	"configcenter/src/common/util"
-	"context"
-	"strings"
 	"time"
 
 	"configcenter/src/common"
 	"configcenter/src/common/blog"
+	"configcenter/src/common/http/rest"
 	"configcenter/src/common/metadata"
+	"configcenter/src/common/util"
 	"configcenter/src/source_controller/coreservice/core"
-	"configcenter/src/storage/dal"
+	"configcenter/src/storage/driver/mongodb"
 
-	"github.com/google/go-cmp/cmp"
+	"github.com/coccyx/timeparser"
 )
 
 var _ core.AuditOperation = (*auditManager)(nil)
 
 type auditManager struct {
-	dbProxy dal.RDB
 }
 
 // New create a new instance manager instance
-func New(dbProxy dal.RDB) core.AuditOperation {
-	return &auditManager{
-		dbProxy: dbProxy,
-	}
+func New() core.AuditOperation {
+	return &auditManager{}
 }
 
-func (m *auditManager) CreateAuditLog(ctx core.ContextParams, logs ...metadata.SaveAuditLogParams) error {
+func (m *auditManager) CreateAuditLog(kit *rest.Kit, logs ...metadata.AuditLog) error {
+	logRows := make([]metadata.AuditLog, 0)
 
-	var logRows []interface{}
-	for _, content := range logs {
-		if instNotChange(ctx, content.Content) {
+	ids, err := mongodb.Client().NextSequences(kit.Ctx, common.BKTableNameAuditLog, len(logs))
+	if err != nil {
+		blog.Errorf("get next audit log id failed, err: %s", err.Error())
+		return err
+	}
+
+	for index, log := range logs {
+		if log.OperationDetail == nil {
 			continue
 		}
-		row := &metadata.OperationLog{
-			OwnerID:       ctx.SupplierAccount,
-			ApplicationID: content.BizID,
-			OpType:        int(content.OpType),
-			OpTarget:      content.Model,
-			User:          ctx.User,
-			ExtKey:        content.ExtKey,
-			OpDesc:        content.OpDesc,
-			Content:       content.Content,
-			CreateTime:    time.Now(),
-			InstID:        content.ID,
-		}
-		logRows = append(logRows, row)
 
+		if log.OperateFrom == "" {
+			log.OperateFrom = metadata.FromUser
+		}
+		log.SupplierAccount = kit.SupplierAccount
+		log.User = kit.User
+		log.OperationTime = metadata.Now()
+		log.ID = int64(ids[index])
+
+		logRows = append(logRows, log)
 	}
+
 	if len(logRows) == 0 {
 		return nil
 	}
-	return m.dbProxy.Table(common.BKTableNameOperationLog).Insert(ctx, logRows)
+	return mongodb.Client().Table(common.BKTableNameAuditLog).Insert(kit.Ctx, logRows)
 }
 
-func (m *auditManager) SearchAuditLog(ctx core.ContextParams, param metadata.QueryInput) ([]metadata.OperationLog, uint64, error) {
-	fields := param.Fields
+func (m *auditManager) SearchAuditLog(kit *rest.Kit, param metadata.QueryCondition) ([]metadata.AuditLog, uint64, error) {
 	condition := param.Condition
-	param.ConvTime()
-	skip := param.Start
-	limit := param.Limit
-	fieldArr := strings.Split(fields, ",")
-	rows := make([]metadata.OperationLog, 0)
-	blog.V(5).Infof("Search table common.BKTableNameOperationLog with parameters: %+v, rid: %s", condition, ctx.ReqID)
-	err := m.dbProxy.Table(common.BKTableNameOperationLog).Find(condition).Sort(param.Sort).Fields(fieldArr...).Start(uint64(skip)).Limit(uint64(limit)).All(ctx, &rows)
+	condition = util.SetQueryOwner(condition, kit.SupplierAccount)
+
+	// parse operation time condition, since json marshal and unmarshal will turn time to string, we need to do it here
+	if condition.Exists(common.BKOperationTimeField) {
+		timeCond, err := condition.MapStr(common.BKOperationTimeField)
+		if err != nil {
+			blog.Errorf("parse operation time condition failed, error: %s, rid: %s", err, kit.Rid)
+			return nil, 0, err
+		}
+
+		for key, value := range timeCond {
+			timeVal, ok := value.(string)
+			if !ok {
+				blog.Errorf("parse operation time failed, time(%v) is not string type, rid: %s", value, kit.Rid)
+				return nil, 0, kit.CCError.CCErrorf(common.CCErrCommParamsInvalid, common.BKOperationTimeField)
+			}
+
+			t, err := timeparser.TimeParserInLocation(timeVal, time.Local)
+			if nil != err {
+				blog.Errorf("parse operation time failed, error: %s, time: %s, rid: %s", err, timeVal, kit.Rid)
+				return nil, 0, kit.CCError.CCErrorf(common.CCErrCommParamsInvalid, common.BKOperationTimeField)
+			}
+			timeCond[key] = t.Local()
+		}
+	}
+
+	blog.V(5).Infof("Search table common.BKTableNameAuditLog with parameters: %+v, rid: %s", condition, kit.Rid)
+
+	rows := make([]metadata.AuditLog, 0)
+	err := mongodb.Client().Table(common.BKTableNameAuditLog).Find(condition).Sort(param.Page.Sort).Fields(param.
+		Fields...).Start(uint64(param.Page.Start)).Limit(uint64(param.Page.Limit)).All(kit.Ctx, &rows)
 	if nil != err {
-		blog.Errorf("query database error:%s, condition:%v, rid: %s", err.Error(), condition, ctx.ReqID)
+
+		blog.Errorf("query database error:%s, condition:%v, rid: %s", err.Error(), condition, kit.Rid)
 		return nil, 0, err
 	}
-	cnt, err := m.dbProxy.Table(common.BKTableNameOperationLog).Find(condition).Count(ctx)
+	cnt, err := mongodb.Client().Table(common.BKTableNameAuditLog).Find(condition).Count(kit.Ctx)
 	if nil != err {
-		blog.Errorf("query database error:%s, condition:%v, rid: %s", err.Error(), condition, ctx.ReqID)
+		blog.Errorf("query database error:%s, condition:%v, rid: %s", err.Error(), condition, kit.Rid)
 		return nil, 0, err
 	}
 
 	return rows, cnt, nil
-}
-
-// instNotChange Determine whether the data is consistent before and after the change
-func instNotChange(ctx context.Context, content interface{}) bool {
-	rid := util.ExtractRequestIDFromContext(ctx)
-	contentMap, ok := content.(map[string]interface{})
-	if !ok {
-		return false
-	}
-	preData, ok := contentMap["pre_data"].(map[string]interface{})
-	if !ok {
-		return false
-	}
-	curData, ok := contentMap["cur_data"].(map[string]interface{})
-	if !ok {
-		return false
-	}
-	delete(preData, common.LastTimeField)
-	delete(curData, common.LastTimeField)
-	bl := cmp.Equal(preData, curData)
-	if bl {
-		blog.V(5).Infof("inst data same, %+v, rid: %s", content, rid)
-	}
-	return bl
 }

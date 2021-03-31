@@ -26,10 +26,15 @@ import (
 	cc "configcenter/src/common/backbone/configcenter"
 	"configcenter/src/common/backbone/service_mange/zk"
 	"configcenter/src/common/blog"
+	crd "configcenter/src/common/confregdiscover"
 	"configcenter/src/common/errors"
 	"configcenter/src/common/language"
 	"configcenter/src/common/metrics"
 	"configcenter/src/common/types"
+	"configcenter/src/storage/dal/mongo"
+	"configcenter/src/storage/dal/redis"
+
+	"github.com/rs/xid"
 )
 
 // connect svcManager retry connect time
@@ -40,6 +45,7 @@ const maxRetry = 200
 type BackboneParameter struct {
 	// ConfigUpdate handle process config change
 	ConfigUpdate cc.ProcHandlerFunc
+	ExtraUpdate  cc.ProcHandlerFunc
 
 	// service component addr
 	Regdiscv string
@@ -52,7 +58,7 @@ type BackboneParameter struct {
 func newSvcManagerClient(ctx context.Context, svcManagerAddr string) (*zk.ZkClient, error) {
 	var err error
 	for retry := 0; retry < maxRetry; retry++ {
-		client := zk.NewZkClient(svcManagerAddr, 5*time.Second)
+		client := zk.NewZkClient(svcManagerAddr, 40*time.Second)
 		if err = client.Start(); err != nil {
 			blog.Errorf("connect regdiscv [%s] failed: %v", svcManagerAddr, err)
 			time.Sleep(time.Second * 2)
@@ -98,11 +104,16 @@ func validateParameter(input *BackboneParameter) error {
 	if input.SrvInfo.Port <= 0 || input.SrvInfo.Port > 65535 {
 		return fmt.Errorf("addrport port must be 1-65535")
 	}
-
-	if input.ConfigUpdate == nil {
+	if input.ConfigUpdate == nil && input.ExtraUpdate == nil {
 		return fmt.Errorf("service config change funcation can not be emtpy")
 	}
-
+	// to prevent other components which doesn't set it from failing
+	if input.SrvInfo.RegisterIP == "" {
+		input.SrvInfo.RegisterIP = input.SrvInfo.IP
+	}
+	if input.SrvInfo.UUID == "" {
+		input.SrvInfo.UUID = xid.New().String()
+	}
 	return nil
 }
 
@@ -149,19 +160,38 @@ func NewBackbone(ctx context.Context, input *BackboneParameter) (*Engine, error)
 
 	handler := &cc.CCHandler{
 		OnProcessUpdate:  input.ConfigUpdate,
+		OnExtraUpdate:    input.ExtraUpdate,
 		OnLanguageUpdate: engine.onLanguageUpdate,
 		OnErrorUpdate:    engine.onErrorUpdate,
+		OnMongodbUpdate:  engine.onMongodbUpdate,
+		OnRedisUpdate:    engine.onRedisUpdate,
 	}
 
-	err = cc.NewConfigCenter(ctx, client, common.GetIdentification(), input.ConfigPath, handler)
+	// add default configcenter
+	zkdisc := crd.NewZkRegDiscover(client)
+	configCenter := &cc.ConfigCenter{
+		Type:               common.BKDefaultConfigCenter,
+		ConfigCenterDetail: zkdisc,
+	}
+	cc.AddConfigCenter(configCenter)
+
+	// get the real configuration center.
+	curentConfigCenter := cc.CurrentConfigCenter()
+
+	err = cc.NewConfigCenter(ctx, curentConfigCenter, input.ConfigPath, handler)
 	if err != nil {
 		return nil, fmt.Errorf("new config center failed, err: %v", err)
+	}
+
+	err = handleNotice(ctx, client.Client(), input.SrvInfo.Instance())
+	if err != nil {
+		return nil, fmt.Errorf("handle notice failed, err: %v", err)
 	}
 
 	return engine, nil
 }
 
-func StartServer(ctx context.Context, e *Engine, HTTPHandler http.Handler, pprofEnabled bool) error {
+func StartServer(ctx context.Context, cancel context.CancelFunc, e *Engine, HTTPHandler http.Handler, pprofEnabled bool) error {
 	e.server = Server{
 		ListenAddr:   e.srvInfo.IP,
 		ListenPort:   e.srvInfo.Port,
@@ -170,24 +200,26 @@ func StartServer(ctx context.Context, e *Engine, HTTPHandler http.Handler, pprof
 		PProfEnabled: pprofEnabled,
 	}
 
-	if err := ListenAndServe(e.server); err != nil {
+	if err := ListenAndServe(e.server, e.SvcDisc, cancel); err != nil {
 		return err
 	}
-	return nil
+
+	// wait for a while to see if ListenAndServe in goroutine is successful
+	// to avoid registering an invalid server address on zk
+	time.Sleep(time.Second)
+
+	return e.SvcDisc.Register(e.RegisterPath, e.ServerInfo)
 }
 
 func New(c *Config, disc ServiceRegisterInterface) (*Engine, error) {
-	if err := disc.Register(c.RegisterPath, c.RegisterInfo); err != nil {
-		return nil, err
-	}
-
 	return &Engine{
-		ServerInfo: c.RegisterInfo,
-		CoreAPI:    c.CoreAPI,
-		SvcDisc:    disc,
-		Language:   language.NewFromCtx(language.EmptyLanguageSetting),
-		CCErr:      errors.NewFromCtx(errors.EmptyErrorsSetting),
-		CCCtx:      newCCContext(),
+		RegisterPath: c.RegisterPath,
+		ServerInfo:   c.RegisterInfo,
+		CoreAPI:      c.CoreAPI,
+		SvcDisc:      disc,
+		Language:     language.NewFromCtx(language.EmptyLanguageSetting),
+		CCErr:        errors.NewFromCtx(errors.EmptyErrorsSetting),
+		CCCtx:        newCCContext(),
 	}, nil
 }
 
@@ -203,9 +235,10 @@ type Engine struct {
 
 	sync.Mutex
 
-	ServerInfo types.ServerInfo
-	server     Server
-	srvInfo    *types.ServerInfo
+	RegisterPath string
+	ServerInfo   types.ServerInfo
+	server       Server
+	srvInfo      *types.ServerInfo
 
 	Language language.CCLanguageIf
 	CCErr    errors.CCErrorIf
@@ -252,6 +285,45 @@ func (e *Engine) onErrorUpdate(previous, current map[string]errors.ErrorCode) {
 	blog.V(3).Infof("load new error config success.")
 }
 
+func (e *Engine) onMongodbUpdate(previous, current cc.ProcessConfig) {
+	e.Lock()
+	defer e.Unlock()
+	if err := cc.SetMongodbFromByte(current.ConfigData); err != nil {
+		blog.Errorf("parse mongo config failed, err: %s, data: %s", err.Error(), string(current.ConfigData))
+	}
+}
+
+func (e *Engine) onRedisUpdate(previous, current cc.ProcessConfig) {
+	e.Lock()
+	defer e.Unlock()
+	if err := cc.SetRedisFromByte(current.ConfigData); err != nil {
+		blog.Errorf("parse redis config failed, err: %s, data: %s", err.Error(), string(current.ConfigData))
+	}
+}
+
 func (e *Engine) Ping() error {
 	return e.SvcDisc.Ping()
+}
+
+func (e *Engine) WithRedis(prefixes ...string) (redis.Config, error) {
+	// use default prefix if no prefix is specified, or use the first prefix
+	var prefix string
+	if len(prefixes) == 0 {
+		prefix = "redis"
+	} else {
+		prefix = prefixes[0]
+	}
+
+	return cc.Redis(prefix)
+}
+
+func (e *Engine) WithMongo(prefixes ...string) (mongo.Config, error) {
+	var prefix string
+	if len(prefixes) == 0 {
+		prefix = "mongodb"
+	} else {
+		prefix = prefixes[0]
+	}
+
+	return cc.Mongo(prefix)
 }

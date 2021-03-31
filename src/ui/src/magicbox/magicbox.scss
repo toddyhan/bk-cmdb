@@ -5,11 +5,25 @@
     &.is-disabled {
         background-color: #fafbfd !important;
         border-color: #dcdee5 !important;
+        .bk-select-name {
+            color: $textDisabledColor;
+        }
+    }
+    &.bk-select-small {
+        .bk-select-loading {
+            top: 4px;
+        }
+    }
+    &.is-default-trigger.is-unselected:before {
+        font-size: 12px;
     }
 }
 
 .bk-select-dropdown-content {
     white-space: nowrap;
+    .bk-options {
+        @include scrollbar;
+    }
 }
 
 .bk-sideslider {
@@ -23,11 +37,10 @@
 }
 
 .bk-date-picker-transfer {
-    z-index: 2000 !important;
+    z-index: 2600 !important;
 }
-
-.bk-sideslider {
-    z-index: 1003 !important;
+.bk-date-picker-dropdown {
+    z-index: 2601 !important;
 }
 
 .bk-select-full-width {
@@ -65,7 +78,6 @@
         border-bottom: none;
     }
     .bk-table-fixed-right {
-        border-right: 1px solid #dfe0e5;
         border-bottom: none;
         tr.bk-table-row-last {
             td.is-last {
@@ -73,28 +85,10 @@
             }
         }
     }
-    .bk-table-selection {
-        .cell {
-            padding: 0;
-            height: 100%;
-            .bk-form-checkbox {
-                display: block;
-                width: 100%;
-                height: 100%;
-                text-align: center;
-                &:before {
-                    content: '';
-                    display: inline-block;
-                    vertical-align: middle;
-                    height: 100%;
-                    width: 0;
-                }
-            }
-        }
-    }
     .bk-table-body {
         .is-highlight {
             color: #3A84FF;
+            cursor: pointer;
         }
         tr.hover-row>td {
             background-color: #f0f1f5;
@@ -105,10 +99,19 @@
             top: 15px;
         }
     }
+    .bk-loading {
+        border: 1px solid #dfe0e5;
+        border-top: none;
+        border-left: none;
+    }
+    .user-selector.user-selector-info {
+        font-size: 12px;
+    }
 }
 
 .bk-big-tree {
-    .bk-big-tree-node {
+    position: relative;
+    .bk-big-tree-node:not(.has-link-line) {
         height: 36px;
         line-height: 36px;
         &.is-leaf {
@@ -128,6 +131,23 @@
             }
         }
     }
+    .bk-big-tree-node.has-link-line.is-leaf {
+        padding-left: 12px;
+    }
+    .bk-scroll-home {
+        .bk-min-nav-slide.bk-nav-show {
+            width: 6px;
+            background-color: #dcdee5;
+            border-radius: 3px;
+        }
+    }
+    .bk-big-tree-empty {
+        position: absolute;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+    }
 }
 
 .bk-tab {
@@ -140,6 +160,7 @@
             height: 58px;
             .bk-tab-label-item {
                 line-height: 58px;
+                min-width: auto;
                 &.active {
                     background-color: transparent;
                 }
@@ -174,4 +195,30 @@
 
 .bk-button {
     min-width: auto;
+}
+
+.bk-search-select,
+.bk-button {
+    .bk-icon {
+        vertical-align: unset;
+    }
+}
+
+.bk-popconfirm-content {
+    .popconfirm-operate {
+        button {
+            margin-left: 10px;
+        }
+    }
+}
+.bk-dropdown-menu {
+    vertical-align: middle;
+}
+
+// 覆盖人员选择器的样式，避免影响magicbox
+.tippy-tooltip {
+    .tippy-arrow {
+        width: unset;
+        height: unset;
+    }
 }

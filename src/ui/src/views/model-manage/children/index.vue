@@ -5,14 +5,14 @@
                 <div class="choose-icon-wrapper">
                     <span class="model-type">{{getModelType()}}</span>
                     <template v-if="isEditable">
-                        <div class="icon-box" v-if="!activeModel['bk_ispaused']" @click="isIconListShow = true">
-                            <i class="icon" :class="[activeModel['bk_obj_icon'] || 'icon-cc-default', { ispre: isPublicModel }]"></i>
-                            <p class="hover-text">{{$t('点击切换')}}</p>
-                        </div>
-                        <div class="icon-box" v-else>
-                            <i class="icon" :class="[activeModel['bk_obj_icon'] || 'icon-cc-default', { ispre: isPublicModel }]"></i>
-                            <p class="hover-text is-paused">{{$t('已停用')}}</p>
-                        </div>
+                        <cmdb-auth tag="div" class="icon-box"
+                            v-if="!activeModel.bk_ispaused"
+                            :auth="{ type: $OPERATION.U_MODEL, relation: [modelId] }"
+                            @click="isIconListShow = true">
+                            <i class="icon" :class="activeModel.bk_obj_icon || 'icon-cc-default'"></i>
+                            <p class="hover-text is-paused" v-if="activeModel.bk_ispaused">{{$t('已停用')}}</p>
+                            <p class="hover-text" v-else>{{$t('点击切换')}}</p>
+                        </cmdb-auth>
                         <div class="choose-icon-box" v-if="isIconListShow" v-click-outside="hideChooseBox">
                             <the-choose-icon
                                 v-model="modelInfo.objIcon"
@@ -23,7 +23,7 @@
                     </template>
                     <template v-else>
                         <div class="icon-box" style="cursor: default;">
-                            <i class="icon" :class="[activeModel['bk_obj_icon'] || 'icon-cc-default', { ispre: isPublicModel }]"></i>
+                            <i class="icon" :class="activeModel.bk_obj_icon || 'icon-cc-default'"></i>
                         </div>
                     </template>
                 </div>
@@ -35,10 +35,11 @@
                     <span>{{$t('名称')}}：</span>
                     <template v-if="!isEditName">
                         <span class="text-content" :title="activeModel['bk_obj_name'] || ''">{{activeModel['bk_obj_name'] || ''}}</span>
-                        <i class="icon icon-cc-edit text-primary"
-                            v-if="isEditable && !activeModel.ispre && !activeModel.bk_ispaused"
+                        <cmdb-auth tag="i" class="icon icon-cc-edit text-primary"
+                            v-if="isEditable"
+                            :auth="{ type: $OPERATION.U_MODEL, relation: [modelId] }"
                             @click="editModelName">
-                        </i>
+                        </cmdb-auth>
                     </template>
                     <template v-else>
                         <div class="cmdb-form-item" :class="{ 'is-error': errors.has('modelName') }">
@@ -61,75 +62,123 @@
                         <i class="icon-cc-share"></i>
                     </div>
                 </div>
-                <span class="restart-btn"
-                    v-cursor="{
-                        active: !$isAuthorized($OPERATION.U_MODEL),
-                        auth: [$OPERATION.U_MODEL]
-                    }"
-                    v-if="!isMainLine && activeModel['bk_ispaused']"
-                    v-bk-tooltips.right="$t('保留模型和相应实例，隐藏关联关系')">
-                    <bk-button
+                <cmdb-auth class="restart-btn"
+                    v-if="!isMainLine && activeModel.bk_ispaused"
+                    :auth="{ type: $OPERATION.U_MODEL, relation: [modelId] }">
+                    <bk-button slot-scope="{ disabled }"
                         theme="primary"
+                        :disabled="disabled"
                         @click="dialogConfirm('restart')">
                         {{$t('立即启用')}}
                     </bk-button>
-                </span>
+                </cmdb-auth>
                 <div class="btn-group">
                     <template v-if="canBeImport">
-                        <label class="label-btn"
-                            v-cursor="{
-                                active: !$isAuthorized($OPERATION.U_MODEL),
-                                auth: [$OPERATION.U_MODEL]
-                            }"
+                        <cmdb-auth tag="label" class="label-btn"
                             v-if="tab.active === 'field'"
-                            :class="{ 'disabled': isReadOnly }">
+                            :auth="{ type: $OPERATION.U_MODEL, relation: [modelId] }"
+                            :class="{ 'disabled': isReadOnly }"
+                            @click="handleImportField">
                             <i class="icon-cc-import"></i>
                             <span>{{$t('导入')}}</span>
-                            <input v-if="!isReadOnly && $isAuthorized($OPERATION.U_MODEL)" ref="fileInput" type="file" @change.prevent="handleFile">
-                        </label>
+                        </cmdb-auth>
                         <label class="label-btn" @click="exportField">
                             <i class="icon-cc-derivation"></i>
                             <span>{{$t('导出')}}</span>
                         </label>
                     </template>
                     <template v-if="isShowOperationButton">
-                        <label class="label-btn"
-                            v-cursor="{
-                                active: !$isAuthorized($OPERATION.U_MODEL),
-                                auth: [$OPERATION.U_MODEL]
-                            }"
+                        <cmdb-auth class="label-btn"
                             v-if="!isMainLine && !activeModel['bk_ispaused']"
-                            v-bk-tooltips="$t('保留模型和相应实例，隐藏关联关系')">
-                            <i class="bk-icon icon-minus-circle-shape"></i>
-                            <span @click="dialogConfirm('stop')">
-                                {{$t('停用')}}
-                            </span>
-                        </label>
-                        <label class="label-btn"
-                            v-cursor="{
-                                active: !$isAuthorized($OPERATION.D_MODEL),
-                                auth: [$OPERATION.D_MODEL]
-                            }"
+                            v-bk-tooltips="$t('保留模型和相应实例，隐藏关联关系')"
+                            :auth="{ type: $OPERATION.U_MODEL, relation: [modelId] }">
+                            <bk-button slot-scope="{ disabled }"
+                                text
+                                :disabled="disabled"
+                                @click="dialogConfirm('stop')">
+                                <i class="bk-icon icon-minus-circle-shape"></i>
+                                <span>{{$t('停用')}}</span>
+                            </bk-button>
+                        </cmdb-auth>
+                        <cmdb-auth class="label-btn"
                             v-bk-tooltips="$t('删除模型和其下所有实例，此动作不可逆，请谨慎操作')"
-                            @click="dialogConfirm('delete')">
-                            <i class="icon-cc-del"></i>
-                            <span>{{$t('删除')}}</span>
-                        </label>
+                            :auth="{ type: $OPERATION.D_MODEL, relation: [modelId] }">
+                            <bk-button slot-scope="{ disabled }"
+                                text
+                                :disabled="disabled"
+                                @click="dialogConfirm('delete')">
+                                <i class="icon-cc-del"></i>
+                                <span>{{$t('删除')}}</span>
+                            </bk-button>
+                        </cmdb-auth>
                     </template>
                 </div>
             </template>
         </div>
-        <bk-tab class="model-details-tab" type="unborder-card" :active.sync="tab.active">
+        <bk-tab class="model-details-tab" type="unborder-card"
+            :active.sync="tab.active"
+            @tab-change="handleTabChange">
             <bk-tab-panel name="field" :label="$t('模型字段')">
                 <the-field-group ref="field" v-if="tab.active === 'field'"></the-field-group>
             </bk-tab-panel>
-            <bk-tab-panel name="relation" :label="$t('模型关联')" :visible="activeModel && !specialModel.includes(activeModel['bk_obj_id'])">
-                <the-relation v-if="tab.active === 'relation'"></the-relation>
+            <bk-tab-panel name="relation" :label="$t('模型关联')" :visible="!!activeModel">
+                <the-relation v-if="tab.active === 'relation'" :model-id="modelId"></the-relation>
             </bk-tab-panel>
             <bk-tab-panel name="verification" :label="$t('唯一校验')">
-                <the-verification v-if="tab.active === 'verification'"></the-verification>
+                <the-verification v-if="tab.active === 'verification'" :model-id="modelId"></the-verification>
             </bk-tab-panel>
         </bk-tab>
+
+        <!-- 导入字段 -->
+        <bk-sideslider
+            v-transfer-dom
+            :is-show.sync="importField.show"
+            :width="800"
+            :title="$t('导入字段')"
+            @hidden="handleSliderHide"
+        >
+            <cmdb-import
+                slot="content"
+                v-if="importField.show"
+                :template-url="importField.templateUrl"
+                :import-url="importUrl"
+                @upload-done="handleUploadDone"
+            >
+                <div slot="uploadResult">
+                    <div class="upload-details-success" v-if="uploadResult.success && uploadResult.success.length">
+                        <i class="bk-icon icon-check-circle-shape"></i>
+                        <span>{{$t('成功导入N个字段', { N: uploadResult.success.length })}}</span>
+                    </div>
+                    <div class="upload-details-fail" v-if="uploadResult.insert_failed && uploadResult.insert_failed.length">
+                        <div class="upload-details-fail-title">
+                            <i class="bk-icon icon-close-circle-shape"></i>
+                            <span>{{$t('新增失败列表')}}({{uploadResult.insert_failed.length}})</span>
+                        </div>
+                        <ul ref="failList" class="upload-details-fail-list">
+                            <li
+                                v-for="(fail, index) in uploadResult.insert_failed"
+                                :title="$t('第N行字段错误信息', { N: fail.row, field: fail.bk_property_id, info: fail.info })"
+                                :key="index">{{$t('第N行字段错误信息', { N: fail.row, field: fail.bk_property_id, info: fail.info })}}
+                            </li>
+                        </ul>
+                    </div>
+                    <div class="upload-details-fail" v-if="uploadResult.update_failed && uploadResult.update_failed.length">
+                        <div class="upload-details-fail-title">
+                            <i class="bk-icon icon-close-circle-shape"></i>
+                            <span>{{$t('更新失败列表')}}({{uploadResult.update_failed.length}})</span>
+                        </div>
+                        <ul ref="failList" class="upload-details-fail-list">
+                            <li
+                                v-for="(fail, index) in uploadResult.update_failed"
+                                :title="$t('第N行字段错误信息', { N: fail.row, field: fail.bk_property_id, info: fail.info })"
+                                :key="index">{{$t('第N行字段错误信息', { N: fail.row, field: fail.bk_property_id, info: fail.info })}}
+                            </li>
+                        </ul>
+                    </div>
+                </div>
+            </cmdb-import>
+        </bk-sideslider>
+        <!-- /导入字段 -->
     </div>
 </template>
 
@@ -138,25 +187,27 @@
     import theVerification from './verification'
     import theFieldGroup from '@/components/model-manage/field-group'
     import theChooseIcon from '@/components/model-manage/choose-icon/_choose-icon'
+    import cmdbImport from '@/components/import/import'
     import { mapActions, mapGetters, mapMutations } from 'vuex'
+    import RouterQuery from '@/router/query'
     import {
         MENU_MODEL_MANAGEMENT,
         MENU_RESOURCE_HOST,
         MENU_RESOURCE_BUSINESS,
-        MENU_RESOURCE_INSTANCE,
-        MENU_MODEL_BUSINESS_TOPOLOGY
+        MENU_RESOURCE_INSTANCE
     } from '@/dictionary/menu-symbol'
     export default {
         components: {
             theFieldGroup,
             theRelation,
             theVerification,
-            theChooseIcon
+            theChooseIcon,
+            cmdbImport
         },
         data () {
             return {
                 tab: {
-                    active: 'field'
+                    active: RouterQuery.get('tab', 'field')
                 },
                 modelInfo: {
                     objName: '',
@@ -164,44 +215,42 @@
                 },
                 isIconListShow: false,
                 isEditName: false,
-                specialModel: ['process', 'plat'],
-                modelStatisticsSet: {}
+                modelStatisticsSet: {},
+                importField: {
+                    show: false,
+                    templateUrl: ''
+                },
+                uploadResult: {
+                    success: null,
+                    insert_failed: null,
+                    update_failed: null
+                }
             }
         },
         computed: {
             ...mapGetters([
                 'supplierAccount',
-                'userName',
-                'admin',
-                'isAdminView',
-                'isBusinessSelected'
+                'userName'
             ]),
             ...mapGetters('objectModel', [
                 'activeModel',
-                'isPublicModel',
-                'isInjectable',
                 'isMainLine'
             ]),
             ...mapGetters('objectModelClassify', ['models']),
             isShowOperationButton () {
-                return (this.isAdminView || !this.isPublicModel)
-                    && !this.activeModel['ispre']
+                return this.activeModel && !this.activeModel.ispre
             },
             isReadOnly () {
                 if (this.activeModel) {
-                    return this.activeModel['bk_ispaused']
+                    return this.activeModel.bk_ispaused
                 }
                 return false
             },
             isEditable () {
-                const updateAuth = this.$isAuthorized(this.$OPERATION.U_MODEL)
-                if (!updateAuth) {
-                    return false
+                if (this.activeModel) {
+                    return !this.activeModel.ispre && !this.activeModel.bk_ispaused
                 }
-                if (this.isAdminView) {
-                    return !this.activeModel.ispre
-                }
-                return !this.isReadOnly && !this.isPublicModel
+                return false
             },
             modelParams () {
                 const {
@@ -222,11 +271,17 @@
             exportUrl () {
                 return `${window.API_HOST}object/owner/${this.supplierAccount}/object/${this.activeModel['bk_obj_id']}/export`
             },
+            importUrl () {
+                return `${window.API_HOST}object/owner/${this.supplierAccount}/object/${this.activeModel['bk_obj_id']}/import`
+            },
             canBeImport () {
-                const cantImport = ['host', 'biz', 'process', 'plat']
-                return this.$isAuthorized(this.$OPERATION.U_MODEL)
-                    && !this.isMainLine
+                const cantImport = ['host', 'biz']
+                return !this.isMainLine
                     && !cantImport.includes(this.$route.params.modelId)
+            },
+            modelId () {
+                const model = this.$store.getters['objectModelClassify/getModelById'](this.$route.params.modelId)
+                return model.id || null
             }
         },
         watch: {
@@ -238,6 +293,9 @@
             this.initObject()
         },
         methods: {
+            handleTabChange (tab) {
+                RouterQuery.set({ tab })
+            },
             ...mapActions('objectModel', [
                 'searchObjects',
                 'updateObject',
@@ -254,22 +312,15 @@
                 'setActiveModel'
             ]),
             getModelType () {
-                if (this.activeModel.ispre) {
-                    return this.$t('内置')
-                } else {
-                    if (this.$tools.getMetadataBiz(this.activeModel)) {
-                        return this.$t('自定义')
-                    }
-                    return this.$t('公共')
+                if (this.activeModel) {
+                    return this.activeModel.ispre ? this.$t('内置') : this.$t('公共')
                 }
+                return ''
             },
             async handleFile (e) {
                 const files = e.target.files
                 const formData = new FormData()
                 formData.append('file', files[0])
-                if (!this.isPublicModel) {
-                    formData.append('metadata', JSON.stringify(this.$injectMetadata().metadata))
-                }
                 try {
                     const res = await this.importObjectAttribute({
                         params: formData,
@@ -322,7 +373,7 @@
                 }
                 await this.updateObject({
                     id: this.activeModel['id'],
-                    params: this.$injectMetadata(this.modelParams, { clone: true })
+                    params: this.modelParams
                 }).then(() => {
                     this.$http.cancel('post_searchClassificationsObjects')
                 })
@@ -334,30 +385,10 @@
                 const model = this.$store.getters['objectModelClassify/getModelById'](this.$route.params.modelId)
                 if (model) {
                     this.$store.commit('objectModel/setActiveModel', model)
-                    this.setBreadcrumbs(model)
                     this.initModelInfo()
                 } else {
-                    this.$router.replace({ name: 'status404' })
+                    this.$routerActions.redirect({ name: 'status404' })
                 }
-            },
-            setBreadcrumbs (model) {
-                const breadcrumbs = [{
-                    label: this.$t('模型管理'),
-                    route: {
-                        name: MENU_MODEL_MANAGEMENT
-                    }
-                }, {
-                    label: model.bk_obj_name
-                }]
-                if (this.$route.query.from === 'business') {
-                    breadcrumbs.splice(0, 1, {
-                        label: this.$t('业务层级'),
-                        route: {
-                            name: MENU_MODEL_BUSINESS_TOPOLOGY
-                        }
-                    })
-                }
-                this.$store.commit('setBreadcrumbs', breadcrumbs)
             },
             async getModelStatistics () {
                 const modelStatisticsSet = {}
@@ -392,7 +423,7 @@
             async exportField () {
                 const res = await this.exportObjectAttribute({
                     objId: this.activeModel['bk_obj_id'],
-                    params: this.$injectMetadata({}, { inject: !this.isPublicModel }),
+                    params: {},
                     config: {
                         globalError: false,
                         originalResponse: true,
@@ -402,13 +433,6 @@
                 this.exportExcel(res)
             },
             dialogConfirm (type) {
-                if (type === 'delete') {
-                    if (!this.$isAuthorized(this.$OPERATION.D_MODEL)) {
-                        return false
-                    }
-                } else if (!this.$isAuthorized(this.$OPERATION.U_MODEL)) {
-                    return false
-                }
                 switch (type) {
                     case 'restart':
                         this.$bkInfo({
@@ -440,9 +464,9 @@
             async updateModelObject (ispaused) {
                 await this.updateObject({
                     id: this.activeModel['id'],
-                    params: this.$injectMetadata({
+                    params: {
                         bk_ispaused: ispaused
-                    }),
+                    },
                     config: {
                         requestId: 'updateModel'
                     }
@@ -461,18 +485,15 @@
                             requestId: 'deleteModel'
                         }
                     })
-                    this.$router.replace({ name: MENU_MODEL_MANAGEMENT })
+                    this.$routerActions.back()
                 } else {
                     await this.deleteObject({
                         id: this.activeModel['id'],
                         config: {
-                            data: this.$injectMetadata({}, {
-                                inject: this.isInjectable
-                            }),
                             requestId: 'deleteModel'
                         }
                     })
-                    this.$router.replace({ name: MENU_MODEL_MANAGEMENT })
+                    this.$routerActions.redirect({ name: MENU_MODEL_MANAGEMENT })
                 }
                 this.$http.cancel('post_searchClassificationsObjects')
             },
@@ -483,17 +504,40 @@
                     biz: MENU_RESOURCE_BUSINESS
                 }
                 if (map.hasOwnProperty(model.bk_obj_id)) {
-                    this.$router.push({
-                        name: map[model.bk_obj_id]
+                    const query = model.bk_obj_id === 'host' ? { scope: 'all' } : {}
+                    this.$routerActions.redirect({
+                        name: map[model.bk_obj_id],
+                        query
                     })
                 } else {
-                    this.$router.push({
+                    this.$routerActions.redirect({
                         name: MENU_RESOURCE_INSTANCE,
                         params: {
                             objId: model.bk_obj_id
                         }
                     })
                 }
+            },
+            handleUploadDone (res) {
+                const data = res.data[this.activeModel['bk_obj_id']]
+                if (res.result) {
+                    this.uploadResult.success = data.success
+                    this.$success(this.$t('导入成功'))
+                    this.$refs.field.initFieldList()
+                } else {
+                    this.uploadResult.insert_failed = data['insert_failed']
+                    this.uploadResult.update_failed = data['update_failed']
+                }
+            },
+            handleSliderHide () {
+                this.uploadResult = {
+                    success: null,
+                    insert_failed: null,
+                    update_failed: null
+                }
+            },
+            handleImportField () {
+                this.importField.show = true
             }
         }
     }
@@ -521,7 +565,6 @@
         background: #ebf4ff;
         font-size: 14px;
         border-bottom: 1px solid #dcdee5;
-        border-top: 1px solid #dcdee5;
         .choose-icon-wrapper {
             position: relative;
             float: left;
@@ -683,9 +726,19 @@
             float: right;
             height: 70px;
             line-height: 70px;
+            display: flex;
+            align-items: center;
             .label-btn {
+                line-height: normal;
                 outline: 0;
                 position: relative;
+                .bk-button-text {
+                    color: #737987;
+                    &:disabled {
+                        color: #dcdee5 !important;
+                        cursor: not-allowed;
+                    }
+                }
                 &.disabled {
                     cursor: not-allowed;
                 }
@@ -710,6 +763,9 @@
                 cursor: pointer;
                 &:hover {
                     color: $cmdbBorderFocusColor;
+                    .bk-button-text {
+                        color: $cmdbBorderFocusColor;
+                    }
                 }
             }
             i,

@@ -1,5 +1,5 @@
 <template>
-    <bk-dropdown-menu trigger="click" :disabled="disabled" font-size="large">
+    <bk-dropdown-menu trigger="click" :disabled="disabled" font-size="medium">
         <bk-button class="clipboard-trigger" theme="default" slot="dropdown-trigger"
             :disabled="disabled">
             {{$t('复制')}}
@@ -51,14 +51,14 @@
     .clipboard-trigger{
         padding: 0 16px;
         .icon-angle-down {
-            font-size: 12px;
-            top: 0;
+            font-size: 20px;
+            margin: 0 -4px;
         }
     }
     .clipboard-list{
         width: 100%;
         font-size: 14px;
-        line-height: 40px;
+        line-height: 32px;
         max-height: 160px;
         @include scrollbar-y;
         &::-webkit-scrollbar{

@@ -14,28 +14,23 @@ package app
 
 import (
 	"context"
-	"errors"
 	"fmt"
-	"os"
-	"time"
 
 	"configcenter/src/apimachinery/util"
 	"configcenter/src/apiserver/app/options"
 	"configcenter/src/apiserver/service"
-	"configcenter/src/auth"
-	"configcenter/src/auth/authcenter"
 	"configcenter/src/common/backbone"
 	cc "configcenter/src/common/backbone/configcenter"
 	"configcenter/src/common/blog"
 	"configcenter/src/common/types"
-	"configcenter/src/common/version"
+	"configcenter/src/storage/dal/redis"
 
 	"github.com/emicklei/go-restful"
 )
 
 // Run main loop function
-func Run(ctx context.Context, op *options.ServerOption) error {
-	svrInfo, err := newServerInfo(op)
+func Run(ctx context.Context, cancel context.CancelFunc, op *options.ServerOption) error {
+	svrInfo, err := types.NewServerInfo(op.ServConf)
 	if err != nil {
 		return fmt.Errorf("wrap server info failed, err: %v", err)
 	}
@@ -60,30 +55,33 @@ func Run(ctx context.Context, op *options.ServerOption) error {
 		return fmt.Errorf("new backbone failed, err: %v", err)
 	}
 
-	if err := apiSvr.CheckForReadiness(); err != nil {
-		return err
-	}
-
-	authConf, err := authcenter.ParseConfigFromKV("auth", apiSvr.Config)
+	redisConf, err := engine.WithRedis()
 	if err != nil {
 		return err
 	}
-	authorize, err := auth.NewAuthorize(nil, authConf, engine.Metric().Registry())
+	cache, err := redis.NewFromConfig(redisConf)
 	if err != nil {
-		return fmt.Errorf("new authorize failed, err: %v", err)
+		return fmt.Errorf("connect redis server failed, err: %s", err.Error())
 	}
-	blog.Infof("enable authcenter: %v", authorize.Enabled())
 
-	svc.SetConfig(engine, client, engine.Discovery(), authorize)
+	limiter := service.NewLimiter(engine.ServiceManageClient().Client())
+	err = limiter.SyncLimiterRules()
+	if err != nil {
+		blog.Infof("SyncLimiterRules failed, err: %v", err)
+		return err
+	}
+
+	svc.SetConfig(engine, client, engine.Discovery(), engine.CoreAPI, cache, limiter)
 
 	ctnr := restful.NewContainer()
 	ctnr.Router(restful.CurlyRouter{})
-	for _, item := range svc.WebServices(authConf) {
+	for _, item := range svc.WebServices() {
 		ctnr.Add(item)
 	}
 	apiSvr.Core = engine
 
-	if err := backbone.StartServer(ctx, engine, ctnr, false); err != nil {
+	err = backbone.StartServer(ctx, cancel, engine, ctnr, false)
+	if err != nil {
 		return err
 	}
 
@@ -101,46 +99,7 @@ type APIServer struct {
 
 func (h *APIServer) onApiServerConfigUpdate(previous, current cc.ProcessConfig) {
 	h.configReady = true
-	h.Config = current.ConfigMap
 }
 
 const waitForSeconds = 180
 
-func (h *APIServer) CheckForReadiness() error {
-	for i := 1; i < waitForSeconds; i++ {
-		if !h.configReady {
-			blog.Info("waiting for api server configuration ready.")
-			time.Sleep(time.Second)
-			continue
-		}
-		return nil
-	}
-	return errors.New("wait for api server configuration timeout")
-}
-
-func newServerInfo(op *options.ServerOption) (*types.ServerInfo, error) {
-	ip, err := op.ServConf.GetAddress()
-	if err != nil {
-		return nil, err
-	}
-
-	port, err := op.ServConf.GetPort()
-	if err != nil {
-		return nil, err
-	}
-
-	hostname, err := os.Hostname()
-	if err != nil {
-		return nil, err
-	}
-
-	info := &types.ServerInfo{
-		IP:       ip,
-		Port:     port,
-		HostName: hostname,
-		Scheme:   "http",
-		Version:  version.GetVersion(),
-		Pid:      os.Getpid(),
-	}
-	return info, nil
-}

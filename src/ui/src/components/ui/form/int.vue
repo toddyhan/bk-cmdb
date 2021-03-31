@@ -1,9 +1,9 @@
 <template>
     <bk-input type="text" ref="input"
         :placeholder="placeholder || $t('请输入数字')"
-        :value="value"
         :maxlength="maxlength"
         :disabled="disabled"
+        v-model="localValue"
         @blur="handleInput"
         @change="handleChange">
         <template slot="append" v-if="unit">
@@ -19,7 +19,7 @@
             value: {
                 default: null,
                 validator (val) {
-                    return typeof val === 'number' || val === '' || val === null
+                    return ['string', 'number'].includes(typeof val) || val === null
                 }
             },
             disabled: {
@@ -37,37 +37,42 @@
             unit: {
                 type: String,
                 default: ''
-            }
-        },
-        data () {
-            return {
-                localValue: null
-            }
-        },
-        watch: {
-            value (value) {
-                this.localValue = this.value === '' ? null : this.value
             },
-            localValue (localValue) {
-                if (localValue !== this.value) {
-                    this.$emit('input', localValue)
+            autoCheck: {
+                type: Boolean,
+                default: true
+            }
+        },
+        computed: {
+            localValue: {
+                get () {
+                    return this.value === null ? '' : this.value
+                },
+                set (value) {
+                    const emitValue = value === '' ? null : value
+                    this.$emit('input', emitValue)
+                    this.$emit('change', emitValue)
+                    this.$emit('on-change', emitValue)
                 }
             }
         },
-        created () {
-            this.localValue = this.value === '' ? null : this.value
-        },
         methods: {
             handleInput (value, event) {
-                value = parseInt(event.target.value.trim())
-                if (isNaN(value)) {
-                    value = null
+                const originalValue = String(event.target.value).trim()
+                const intValue = originalValue.length ? Number(event.target.value.trim()) : null
+                if (isNaN(intValue)) {
+                    value = this.autoCheck ? null : value
+                } else {
+                    value = intValue
                 }
                 this.$refs.input.curValue = value
                 this.localValue = value
             },
             handleChange () {
                 this.$emit('on-change', this.localValue)
+            },
+            focus () {
+                this.$el.querySelector('input').focus()
             }
         }
     }

@@ -4,47 +4,50 @@
             <div class="results-list">
                 <div class="results-item"
                     v-for="(source, index) in searchData"
-                    :key="index"
-                    v-if="!['model'].includes(source['hitsType'])">
+                    :key="index">
                     <template v-if="source['hitsType'] === 'object'">
-                        <div class="results-title"
-                            v-html="`${modelClassifyName[source['bk_obj_id']]} - ${source.bk_inst_name.toString()}`"
-                            @click="jumpPage(source)"></div>
+                        <div class="results-title" @click="jumpPage(source)">
+                            <span v-html="`${modelClassifyName[source['bk_obj_id']]} - ${source.bk_inst_name.toString()}`"></span>
+                        </div>
                         <div class="results-desc" v-if="propertyMap[source['bk_obj_id']]" @click="jumpPage(source)">
                             <span class="desc-item" v-html="`${$t('实例ID')}：${source['bk_inst_id']}`"> </span>
-                            <span class="desc-item"
-                                v-for="(property, childIndex) in propertyMap[source['bk_obj_id']]"
-                                :key="childIndex"
-                                v-if="source[property['bk_property_id']]"
-                                v-html="`${property['bk_property_name']}：${getShowPropertyText(property, source, property['bk_property_id'])}`">
-                            </span>
+                            <template v-for="(property, childIndex) in propertyMap[source['bk_obj_id']]">
+                                <span class="desc-item"
+                                    :key="childIndex"
+                                    v-if="source[property['bk_property_id']]"
+                                    v-html="`${property['bk_property_name']}：${getShowPropertyText(property, source, property['bk_property_id'])}`">
+                                </span>
+                            </template>
                         </div>
                     </template>
                     <template v-else-if="source.hitsType === 'host'">
-                        <div class="results-title"
-                            v-html="`${modelClassifyName['host']} - ${source.bk_host_innerip.toString()}`"
-                            @click="jumpPage(source)"></div>
+                        <div class="results-title" @click="jumpPage(source)">
+                            <span v-html="`${modelClassifyName['host']} - ${source.bk_host_innerip.toString()}`"></span>
+                        </div>
                         <div class="results-desc" v-if="propertyMap['host']" @click="jumpPage(source)">
-                            <span class="desc-item" v-html="`${$t('主机ID')}${source['bk_host_id']}`"> </span>
-                            <span class="desc-item"
-                                v-for="(property, childIndex) in propertyMap['host']"
-                                :key="childIndex"
-                                v-if="source[property['bk_property_id']]"
-                                v-html="`${property['bk_property_name']}：${getShowPropertyText(property, source, property['bk_property_id'])}`">
-                            </span>
+                            <span class="desc-item" v-html="`${$t('主机ID')}：${getHighlightValue(source['bk_host_id'], source, 'bk_host_id')}`"> </span>
+                            <template v-for="(property, childIndex) in propertyMap['host']">
+                                <span class="desc-item"
+                                    v-if="source[property['bk_property_id']]"
+                                    :key="childIndex"
+                                    v-html="`${property['bk_property_name']}：${getShowPropertyText(property, source, property['bk_property_id'])}`">
+                                </span>
+                            </template>
                         </div>
                     </template>
                     <template v-else-if="source.hitsType === 'biz'">
-                        <div class="results-title"
-                            v-html="`${modelClassifyName['biz']} - ${source.bk_biz_name.toString()}`"
-                            @click="jumpPage(source)"></div>
+                        <div class="results-title" @click="jumpPage(source)">
+                            <span v-html="`${modelClassifyName['biz']} - ${source.bk_biz_name.toString()}`"></span>
+                            <i class="disabled-mark" v-if="source.bk_data_status === 'disabled'">{{$t('已归档')}}</i>
+                        </div>
                         <div class="results-desc" v-if="propertyMap['biz']" @click="jumpPage(source)">
-                            <span class="desc-item"
-                                v-for="(property, childIndex) in propertyMap['biz']"
-                                :key="childIndex"
-                                v-if="source[property['bk_property_id']]"
-                                v-html="`${property['bk_property_name']}：${getShowPropertyText(property, source, property['bk_property_id'])}`">
-                            </span>
+                            <template v-for="(property, childIndex) in propertyMap['biz']">
+                                <span class="desc-item"
+                                    :key="childIndex"
+                                    v-if="source[property['bk_property_id']]"
+                                    v-html="`${property['bk_property_name']}：${getShowPropertyText(property, source, property['bk_property_id'])}`">
+                                </span>
+                            </template>
                         </div>
                     </template>
                 </div>
@@ -58,7 +61,12 @@
 </template>
 
 <script>
-    import { MENU_RESOURCE_INSTANCE, MENU_RESOURCE_BUSINESS, MENU_RESOURCE_HOST_DETAILS } from '@/dictionary/menu-symbol'
+    import {
+        MENU_RESOURCE_INSTANCE_DETAILS,
+        MENU_RESOURCE_BUSINESS_DETAILS,
+        MENU_RESOURCE_HOST_DETAILS,
+        MENU_RESOURCE_BUSINESS_HISTORY
+    } from '@/dictionary/menu-symbol'
     import { mapGetters, mapActions } from 'vuex'
     export default {
         props: {
@@ -112,12 +120,16 @@
                 this.modelClassify.forEach(model => {
                     this.modelClassifyName[model['bk_obj_id']] = model['bk_obj_name']
                 })
-                await this.processArray(modelData)
-                this.searchData = hitsData.map(hits => {
+                if (modelData.length) {
+                    await this.getProperties({
+                        $in: modelData.map(model => model.key)
+                    })
+                }
+                this.searchData = hitsData.filter(hits => !['model'].includes(hits.type)).map(hits => {
                     const hit = {
                         ...hits.source,
-                        ...hits.highlight,
-                        hitsType: hits.type
+                        hitsType: hits.type,
+                        highlight: hits.highlight
                     }
                     if (hit.hasOwnProperty('bk_obj_id')) {
                         hit['bk_obj_id'] = hit['bk_obj_id'].toString().replace(/\<\/?em\>/g, '')
@@ -125,58 +137,22 @@
                     return hit
                 })
             },
-            isPublicModel (objId) {
-                const model = this.models.find(model => model['bk_obj_id'] === objId) || {}
-                return !this.$tools.getMetadataBiz(model)
-            },
-            async getPublicModelProperties (objId) {
-                this.propertyMap = await this.batchSearchObjectAttribute({
-                    params: this.$injectMetadata({
-                        bk_obj_id: objId,
-                        bk_supplier_account: this.supplierAccount
-                    }, { inject: false }),
-                    config: {
-                        requestId: `post_batchSearchObjectAttribute_${objId['$in'].join('_')}`,
-                        requestGroup: objId['$in'].map(id => `post_searchObjectAttribute_${id}`)
-                    }
-                })
-            },
             async getProperties (objId) {
-                const properties = await this.searchObjectAttribute({
-                    params: this.$injectMetadata({
+                this.propertyMap = await this.batchSearchObjectAttribute({
+                    params: {
                         bk_obj_id: objId,
                         bk_supplier_account: this.supplierAccount
-                    }, { inject: true }),
-                    config: {
-                        requestId: `post_searchObjectAttribute_${objId}`,
-                        fromCache: false
                     }
                 })
-                this.$set(this.propertyMap, objId, properties)
-            },
-            async processArray (data) {
-                this.propertyMap = {}
-                const publicObj = data.filter(aggregation => this.isPublicModel(aggregation.key)).map(model => model.key)
-                const privateObj = data.filter(aggregation => !this.isPublicModel(aggregation.key)).map(model => model.key)
-                if (publicObj.length) {
-                    const objId = {
-                        '$in': publicObj
-                    }
-                    await this.getPublicModelProperties(objId)
-                }
-                if (privateObj.length) {
-                    for (let i = 0; i < privateObj.length; i++) {
-                        await this.getProperties(privateObj[i])
-                    }
-                }
             },
             jumpPage (source) {
                 if (source['hitsType'] === 'host') {
-                    this.$router.push({
+                    this.$routerActions.redirect({
                         name: MENU_RESOURCE_HOST_DETAILS,
                         params: {
-                            id: source['bk_host_id']
-                        }
+                            id: source['bk_host_id'].toString().replace(/(\<\/?em\>)/g, '')
+                        },
+                        history: true
                     })
                 } else if (source['hitsType'] === 'object') {
                     const model = this.getModelById(source['bk_obj_id'])
@@ -194,30 +170,46 @@
                         })
                         return
                     }
-                    this.$router.push({
-                        name: MENU_RESOURCE_INSTANCE,
+                    this.$routerActions.redirect({
+                        name: MENU_RESOURCE_INSTANCE_DETAILS,
                         params: {
                             objId: source['bk_obj_id'],
                             instId: source['bk_inst_id'].toString().replace(/(\<\/?em\>)/g, '')
-                        }
+                        },
+                        history: true
                     })
                 } else if (source['hitsType'] === 'biz') {
-                    this.$router.push({
-                        name: MENU_RESOURCE_BUSINESS,
+                    const name = source.bk_data_status === 'disabled' ? MENU_RESOURCE_BUSINESS_HISTORY : MENU_RESOURCE_BUSINESS_DETAILS
+                    this.$routerActions.redirect({
+                        name: name,
                         params: {
+                            bizId: source.bk_biz_id,
                             bizName: source['bk_biz_name'].toString().replace(/(\<\/?em\>)/g, '')
-                        }
+                        },
+                        history: true
                     })
                 }
             },
             getShowPropertyText (property, source, thisProperty) {
-                const cloneSource = this.$tools.clone(source)
-                const reg = /\<em\>.+\<\/em\>/
-                const propertyValue = cloneSource[thisProperty].toString()
-                const isHeightLight = reg.test(propertyValue)
-                cloneSource[thisProperty] = isHeightLight ? propertyValue.replace(/(\<\/?em\>)/g, '') : propertyValue
-                const flatternedText = this.$tools.getPropertyText(property, cloneSource)
-                return isHeightLight ? `<em>${flatternedText}</em>` : flatternedText
+                let propertyValue = this.$tools.getPropertyText(property, source)
+
+                if (!Object.keys(source.highlight).includes(thisProperty)) {
+                    return propertyValue || '--'
+                }
+
+                // 对highlight属性值做高亮标签处理
+                propertyValue = this.getHighlightValue(propertyValue, source, thisProperty)
+                return propertyValue || '--'
+            },
+            getHighlightValue (value, source, thisProperty) {
+                const highlightValue = source.highlight[thisProperty]
+                if (!highlightValue) {
+                    return value
+                }
+                let keyword = Array.isArray(highlightValue) ? highlightValue[0] : highlightValue
+                keyword = keyword.match(/<em>(.+?)<\/em>/)[1]
+                const reg = new RegExp(`(${keyword})`, 'g')
+                return String(value).replace(reg, '<em>$1</em>')
             }
         }
     }
@@ -248,8 +240,23 @@
                         margin-bottom: 4px;
                         cursor: pointer;
                         &:hover {
-                            color: #3a84ff;
-                            text-decoration: underline;
+                            span {
+                                color: #3a84ff;
+                                text-decoration: underline;
+                            }
+                        }
+                        .disabled-mark {
+                            height: 18px;
+                            line-height: 16px;
+                            padding: 0 4px;
+                            font-style: normal;
+                            font-size: 12px;
+                            color: #979BA5;
+                            border: 1px solid #C4C6CC;
+                            background-color: #FAFBFD;
+                            border-radius: 2px;
+                            margin-left: 4px;
+                            text-decoration: none;
                         }
                     }
                     .results-desc {

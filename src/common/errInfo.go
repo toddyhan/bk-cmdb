@@ -15,7 +15,6 @@ package common
 // CC error number defined in this file
 // Errno name is composed of the following format CCErr[XXX]
 const (
-
 	// the system code
 
 	// CCSystemBusy the system is busy
@@ -198,7 +197,37 @@ const (
 	CCErrGetNoAuthSkipURLFailed  = 1199072
 
 	// CCErrCommValExceedMaxFailed %s field exceeds maximum value %v
-	CCErrCommValExceedMaxFailed = 1199073
+	CCErrCommValExceedMaxFailed          = 1199073
+	CCErrCommGlobalCCErrorNotInitialized = 1199074
+
+	CCErrCommForbiddenOperateMainlineInstanceWithCommonAPI = 1199075
+	CCErrTopoUpdateBuiltInCloudForbidden                   = 1199076
+
+	// CCErrTopoModuleNotFoundError module [%s] does not exist in the business topology
+	CCErrCommTopoModuleNotFoundError = 1199078
+	// CCErrBizNotFoundError business [%s] does not exist
+	CCErrCommBizNotFoundError      = 1199079
+	CCErrParseAttrOptionListFailed = 1199080
+	// one argument: maxValue
+	CCErrExceedMaxOperationRecordsAtOnce = 1199081
+
+	CCErrCommListAuthorizedResourceFromIAMFailed             = 1199082
+	CCErrCommModifyFieldForbidden                            = 1199083
+	CCErrCommForbiddenOperateInnerModelInstanceWithCommonAPI = 1199084
+	CCErrCommUnexpectedFieldType                             = 1199085
+
+	CCErrCommGetBusinessIDByHostIDFailed = 1199086
+
+	// CCErrCommOPInProgressErr have the same task[%s] in progress
+	CCErrCommOPInProgressErr = 1199087
+	// CCErrCommRedisOPErr operate redis error.
+	CCErrCommRedisOPErr = 1199088
+
+	// CCErrArrayLengthWrong the length of the array is wrong
+	CCErrArrayLengthWrong = 1199089
+
+	// too many requests
+	CCErrTooManyRequestErr = 1199997
 
 	// unknown or unrecognized error
 	CCErrorUnknownOrUnrecognizedError = 1199998
@@ -319,7 +348,7 @@ const (
 	CCErrTopoGetModuleFailed = 1101034
 	// CCErrTopoBizTopoOverLevel the mainline topo level over limit
 	CCErrTopoBizTopoLevelOverLimit = 1101035
-	// CCErrTopoInstHasBeenAssociation the mainline topo level over limit
+	// CCErrTopoInstHasBeenAssociation the instance has been associated
 	CCErrTopoInstHasBeenAssociation = 1101036
 	// it is forbidden to delete , that has some insts
 	CCErrTopoObjectHasSomeInstsForbiddenToDelete = 1101037
@@ -379,14 +408,6 @@ const (
 	CCErrTopoMainlineDeleteFailed                             = 1101138
 	CCErrTopoMainlineSelectFailed                             = 1101139
 	CCErrTopoTopoSelectFailed                                 = 1101140
-	CCErrTopoUserGroupCreateFailed                            = 1101141
-	CCErrTopoUserGroupDeleteFailed                            = 1101142
-	CCErrTopoUserGroupUpdateFailed                            = 1101143
-	CCErrTopoUserGroupSelectFailed                            = 1101144
-	CCErrTopoUserGroupPrivilegeUpdateFailed                   = 1101145
-	CCErrTopoUserGroupPrivilegeSelectFailed                   = 1101146
-	CCErrTopoUserPrivilegeSelectFailed                        = 1101147
-	CCErrTopoRolePrivilegeCreateFailed                        = 1101148
 	CCErrTopoDeleteMainLineObjectAndInstNameRepeat            = 1101149
 	CCErrHostNotAllowedToMutiBiz                              = 1101150
 	CCErrTopoGraphicsSearchFailed                             = 1101151
@@ -431,8 +452,24 @@ const (
 	CCErrorTopoUpdateModuleFromTplServiceCategoryForbidden = 1101090
 	CCErrorTopoUpdateModuleFromTplNameForbidden            = 1101091
 	CCErrTopoCanNotAddRequiredAttributeForMainlineModel    = 1101092
-	CCErrorTopoObjectInstanceObjIDFieldConflictWithUrl     = 1101093
+	CCErrorTopoObjectInstanceObjIDFieldConflictWithURL     = 1101093
+	CCErrTopoImportMainlineForbidden                       = 1101094
 
+	CCErrorTopoSyncModuleTaskFailed    = 1101095
+	CCErrorTopoSyncModuleTaskIsRunning = 1101096
+
+	CCErrorTopoForbiddenOperateModuleOnSetInitializedByTemplate = 1101097
+	CCErrorTopoForbiddenDeleteBuiltInSetModule                  = 1101098
+	CCErrorTopoModuleNameDuplicated                             = 1101099
+
+	CCErrorTopoPathParamPaserFailed                = 1101100
+	CCErrorTopoSearchModelAttriFailedPleaseRefresh = 1101101
+	CCErrorTopoOnlyResourceDirNameCanBeUpdated     = 1101102
+	CCErrorTopoOperateReourceDirFailNotExist       = 1101103
+	CCErrorTopoResourceDirIdleModuleCanNotRemove   = 1101104
+	CCErrorTopoResourceDirUsedInCloudSync          = 1101105
+
+	CCErrorModelNotFound = 1101102
 	// object controller 1102XXX
 
 	// CCErrObjectPropertyGroupInsertFailed failed to save the property group
@@ -451,7 +488,7 @@ const (
 	CCErrObjectSelectIdentifierFailed = 1102008
 
 	// CCErrObjectDBOpErrno failed to operation database
-	CCErrObjectDBOpErrno = 1102004
+	CCErrObjectDBOpErrno = 1102020
 
 	// event_server 1103XXX
 	// CCErrEventSubscribeInsertFailed failed to save the Subscribe
@@ -505,6 +542,7 @@ const (
 	CCErrCloudCreateSyncTaskFail         = 1106021
 	CCErrCloudConfirmHistoryAddFail      = 1106022
 	CCErrCloudSyncHistorySearchFail      = 1106023
+	CCErrHostGetSnapshotBatch            = 1106024
 
 	// process controller 1107XXX
 	CCErrProcDeleteProc2Module   = 1107001
@@ -568,9 +606,12 @@ const (
 	CCErrProcUnbindModuleServiceTemplateDisabled = 1108042
 	CCErrProcGetServiceCategoryFailed            = 1108043
 
+	CCErrHostTransferFinalModuleConflict = 1108044
+
 	// audit log 1109XXX
 	CCErrAuditSaveLogFailed      = 1109001
-	CCErrAuditTakeSnapshotFailed = 1109001
+	CCErrAuditTakeSnapshotFailed = 1109002
+	CCErrAuditSelectFailed       = 1109003
 
 	// host server
 	CCErrHostGetFail              = 1110001
@@ -604,16 +645,6 @@ const (
 	CCErrAddHostToModule          = 1110029
 	CCErrAddHostToModuleFailStr   = 1110030
 
-	CCErrCloudSyncCreateFail        = 1110031
-	CCErrCloudHistoryCreateFail     = 1110032
-	CCErrCloudConfirmCreateFail     = 1110033
-	CCErrCloudGetConfirmFail        = 1110034
-	CCErrCloudAddConfirmHistoryFail = 1110035
-	CCErrCloudGetTaskFail           = 1110036
-	CCErrCloudGetConfirmHistoryFail = 1110037
-	CCErrCloudTaskNameAlreadyExist  = 1110038
-	CCErrCloudSyncStartFail         = 1110039
-
 	// hostserver api machinery new error code
 	CCErrAddUserCustomQueryFailed       = 1110040
 	CCErrUpdateUserCustomQueryFailed    = 1110041
@@ -636,11 +667,20 @@ const (
 	CCErrHostModuleNotExist = 1110054
 	// CCErrDeleteHostFromBusiness Delete the host under the business
 	CCErrDeleteHostFromBusiness = 1110055
-	// CCErrHostNotBelongIDLEModuleErr hostID[%#v] not belong to business
-	CCErrHostNotBelongIDLEModuleErr = 1110056
+	// CCErrHostModuleConfigNotMatch hostID[%#v] not belong to business
+	CCErrHostModuleConfigNotMatch = 1110056
 	// CCErrHostModuleIDNotFoundORHasMultipleInnerModuleIDFailed Module does not exist or there are multiple built-in modules
 	CCErrHostModuleIDNotFoundORHasMultipleInnerModuleIDFailed = 1110057
 	CCErrHostSearchNeedObjectInstIDErr                        = 1110058
+	CCErrHostSetNotExist                                      = 1110059
+	CCErrHostSetNotBelongBusinessErr                          = 1110060
+	CCErrHostModuleNotBelongBusinessErr                       = 1110061
+	CCErrHostModuleNotBelongSetErr                            = 1110062
+	CCErrHostPlatCloudNameIsrequired                          = 1110063
+	CCErrHostPlatCloudNameAlreadyExist                        = 1110064
+	CCErrHostFindManyCloudAreaAddHostCountFieldFail           = 1110065
+	CCErrDeleteDefaultCloudAreaFail                           = 1110066
+	CCErrHostFindManyCloudAreaAddSyncTaskIDsFieldFail         = 1110067
 
 	// web 1111XXX
 	CCErrWebFileNoFound                 = 1111001
@@ -655,6 +695,11 @@ const (
 	CCErrWebGetAddNetPropertyResultFail = 1111010
 	CCErrWebGetNetDeviceFail            = 1111011
 	CCErrWebGetNetPropertyFail          = 1111012
+	CCErrWebNeedFillinUsernamePasswd    = 1111013
+	CCErrWebUsernamePasswdWrong         = 1111014
+	CCErrWebNoUsernamePasswd            = 1111015
+	CCErrWebUserinfoFormatWrong         = 1111016
+	CCErrWebUnknownLoginVersion         = 1111017
 
 	// datacollection 1112xxx
 	CCErrCollectNetDeviceCreateFail            = 1112000
@@ -678,7 +723,6 @@ const (
 	CCErrCollectNetPropertyUpdateFail          = 1112018
 
 	// coreservice 1113xxx
-
 	// CCErrorModelAttributeGroupHasSomeAttributes the group has some attributes
 	CCErrCoreServiceModelAttributeGroupHasSomeAttributes = 1113001
 
@@ -717,8 +761,8 @@ const (
 	CCErrCoreServiceShouldNotRemoveProcessCreateByTemplate                    = 1113022
 	// CCErrCoreServiceDeleteMultpleObjectIDRecordErr 删除多个模型中的%s数据
 	CCErrCoreServiceDeleteMultpleObjectIDRecordErr = 1113023
-	// CCErrCoreServiceDeleteMultpleObjectIDRecordErr 不允许删除在唯一校验中的字段
-	CCErrCoreServiceNotAllowUnqiueAttr = 1113024
+	// CCErrCoreServiceDeleteMultipleObjectIDRecordErr 不允许删除在唯一校验中的字段
+	CCErrCoreServiceNotAllowUniqueAttr = 1113024
 	// CCErrCoreServiceNotUpdatePredefinedAttrErr 修改不允许修改的属性的描述
 	CCErrCoreServiceNotUpdatePredefinedAttrErr = 1113025
 	// CCErrCoreServiceNotAllowAddRequiredFieldErr 模型[%s]不允许新加必填字段
@@ -732,40 +776,75 @@ const (
 	// CCErrCoreServiceModelHasInstanceErr 模型下有示例数据
 	CCErrCoreServiceModelHasInstanceErr = 1113030
 	// CCErrCoreServiceModelHasAssociationErr 模型与其他模型有关联关系
-	CCErrCoreServiceModelHasAssociationErr = 1113031
+	CCErrCoreServiceModelHasAssociationErr           = 1113031
+	CCErrCoreServiceOnlyNodeServiceCategoryAvailable = 1113032
+	// SearchTopoTreeScanTooManyData means hit too many data, we return directly.
+	SearchTopoTreeScanTooManyData = 1113033
+
+	// CCERrrCoreServiceUniqueRuleExist 模型唯一校验规则已经存在
+	CCERrrCoreServiceSameUniqueCheckRuleExist = 1113050
+	// CCErrCoreServiceResourceDirectoryNotExistErr 资源池目录不存在
+	CCErrCoreServiceResourceDirectoryNotExistErr = 1113033
+	// CCErrCoreServiceHostNotUnderAnyResourceDirectory 主机不在任意资源池目录下
+	CCErrCoreServiceHostNotUnderAnyResourceDirectory = 11130034
 
 	// synchronize data core service  11139xx
 	CCErrCoreServiceSyncError = 1113900
-	// CCErrCoreServiceSyncDataClassifyNotExistError %s type data synchronization, data of the same type %sdoes not exist
+	// CCErrCoreServiceSyncDataClassifyNotExistError %s type data synchronization, data of the same type %s does not exist
 	CCErrCoreServiceSyncDataClassifyNotExistError = 1113901
-
-	// CCErrApiServerV2AppNameLenErr app name must be 1-32 len
-	CCErrAPIServerV2APPNameLenErr = 1170001
-
-	// CCErrAPIServerV2DirectErr  display error
-	CCErrAPIServerV2DirectErr = 1170002
-
-	// CCErrAPIServerV2SetNameLenErr  set name must be < 24 len
-	CCErrAPIServerV2SetNameLenErr = 1170003
-
-	// CCErrAPIServerV2MultiModuleIDErr  single module id  is int
-	CCErrAPIServerV2MultiModuleIDErr = 1170004
-
-	// CCErrAPIServerV2MultiSetIDErr  single set id is int
-	CCErrAPIServerV2MultiSetIDErr = 1170005
-
-	// CCErrAPIServerV2OSTypeErr osType must be linux or windows
-	CCErrAPIServerV2OSTypeErr = 1170006
-
-	// CCErrAPIServerV2HostModuleContainDefaultModuleErr  translate host to multiple module not contain default module
-	CCErrAPIServerV2HostModuleContainDefaultModuleErr = 1170007
 
 	// synchronize_server 1114xxx
 
-	CCErrSynchronizeError = 1114001
+	CCErrSynchronizeError = 1113903
 
-	CCErrCloudSyncDeleteSyncTaskFail = 1116011
-	CCErrCloudSyncUpdateSyncTaskFail = 1116012
+	// operation_server 1116xxx
+	CCErrOperationBizModuleHostAmountFail = 1116001
+	CCErrOperationNewAddStatisticFail     = 1116002
+	CCErrOperationChartAlreadyExist       = 1116003
+	CCErrOperationDeleteChartFail         = 1116004
+	CCErrOperationSearchChartFail         = 1116005
+	CCErrOperationUpdateChartFail         = 1116006
+	CCErrOperationGetChartDataFail        = 1116007
+	CCErrOperationUpdateChartPositionFail = 1116008
+
+	// task_server 1117xxx
+	// CCErrTaskNotFound task not found
+	CCErrTaskNotFound = 1117001
+	// CCErrTaskSubTaskNotFound sub task not found
+	CCErrTaskSubTaskNotFound = 1117002
+	// CCErrTaskStatusNotAllowChangeTo task not allow status change to xx
+	CCErrTaskStatusNotAllowChangeTo = 1117003
+	// CCErrTaskErrResponseEmtpyFail error response empty
+	CCErrTaskErrResponseEmtpyFail = 1117004
+	CCErrTaskLockedTaskFail       = 1117005
+	CCErrTaskUnLockedTaskFail     = 1117006
+	CCErrTaskListTaskFail         = 1117007
+
+	// cloud_server 1118xxx
+	// CCErrCloudVendorNotSupport cloud vendor not support
+	CCErrCloudVendorNotSupport                = 1118001
+	CCErrCloudAccountNameAlreadyExist         = 1118002
+	CCErrCloudValidAccountParamFail           = 1118003
+	CCErrCloudAccountIDNoExistFail            = 1118004
+	CCErrCloudSyncTaskNameAlreadyExist        = 1118005
+	CCErrCloudValidSyncTaskParamFail          = 1118006
+	CCErrCloudVpcIDIsRequired                 = 1118007
+	CCErrCloudVendorInterfaceCalledFailed     = 1118008
+	CCErrCloudAccountSecretIDAlreadyExist     = 1118009
+	CCErrCloudTaskAlreadyExistInAccount       = 1118010
+	CCErrCloudAccoutIDSecretWrong             = 1118011
+	CCErrCloudHttpRequestTimeout              = 1118012
+	CCErrCloudVpcGetFail                      = 1118013
+	CCErrCloudRegionGetFail                   = 1118014
+	CCErrCloudSyncDirNoChosen                 = 1118015
+	CCErrCloudSyncDirNoExist                  = 1118016
+	CCErrCloudIDNoProvided                    = 1118017
+	CCErrCloudIDNoExist                       = 1118018
+	CCErrDefaultCloudIDProvided               = 1118019
+	CCErrCloudAccountCreateFail               = 1118020
+	CCErrGetCloudAccountConfBatchFailed       = 1118021
+	CCErrDeleteDestroyedHostRelatedFailed     = 1118022
+	CCErrCloudAccountDeletedFailedForSyncTask = 1118023
 
 	/** TODO: 以下错误码需要改造 **/
 

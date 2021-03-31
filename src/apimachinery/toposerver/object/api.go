@@ -46,11 +46,15 @@ type ObjectInterface interface {
 	SelectPropertyGroupByObjectID(ctx context.Context, ownerID string, objID string, h http.Header, data map[string]interface{}) (resp *metadata.Response, err error)
 	CreateObjectBatch(ctx context.Context, h http.Header, data map[string]interface{}) (resp *metadata.Response, err error)
 	SearchObjectBatch(ctx context.Context, h http.Header, data map[string]interface{}) (resp *metadata.Response, err error)
-	CreateObject(ctx context.Context, h http.Header, obj metadata.Object) (resp *metadata.Response, err error)
+	CreateObject(ctx context.Context, h http.Header, obj metadata.Object) (resp *metadata.CreateModelResult, err error)
 	SelectObjectWithParams(ctx context.Context, h http.Header, data map[string]interface{}) (resp *metadata.Response, err error)
 	SelectObjectTopo(ctx context.Context, h http.Header, data map[string]interface{}) (resp *metadata.Response, err error)
 	UpdateObject(ctx context.Context, objID string, h http.Header, data map[string]interface{}) (resp *metadata.Response, err error)
 	DeleteObject(ctx context.Context, objID string, h http.Header, data map[string]interface{}) (resp *metadata.Response, err error)
+	CreateObjectUnique(ctx context.Context, objID string, h http.Header, data *metadata.CreateUniqueRequest) (resp *metadata.Response, err error)
+	SearchObjectUnique(ctx context.Context, objID string, h http.Header) (resp *metadata.Response, err error)
+	UpdateObjectUnique(ctx context.Context, objID string, h http.Header, uniqueID uint64, data *metadata.UpdateUniqueRequest) (resp *metadata.Response, err error)
+	DeleteObjectUnique(ctx context.Context, objID string, h http.Header, uniqueID uint64) (resp *metadata.Response, err error)
 }
 
 func NewObjectInterface(client rest.ClientInterface) ObjectInterface {

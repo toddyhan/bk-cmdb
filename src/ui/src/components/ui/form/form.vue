@@ -1,5 +1,6 @@
 <template>
     <div class="form-layout">
+        <slot name="prepend"></slot>
         <div class="form-groups" ref="formGroups">
             <template v-for="(group, groupIndex) in $sortedGroups">
                 <div class="property-group"
@@ -8,39 +9,44 @@
                     <cmdb-collapse
                         :label="group['bk_group_name']"
                         :collapse.sync="groupState[group['bk_group_id']]">
-                        <ul class="property-list clearfix">
-                            <li class="property-item fl"
-                                v-for="(property, propertyIndex) in groupedProperties[groupIndex]"
-                                v-if="checkEditable(property)"
-                                :key="propertyIndex">
-                                <div class="property-name">
-                                    <span class="property-name-text" :class="{ required: property['isrequired'] }">{{property['bk_property_name']}}</span>
-                                    <i class="property-name-tooltips icon-cc-tips"
-                                        v-if="property['placeholder']"
-                                        v-bk-tooltips="htmlEncode(property['placeholder'])">
-                                    </i>
-                                </div>
-                                <div class="property-value clearfix">
-                                    <slot :name="property.bk_property_id">
-                                        <component class="form-component"
-                                            :is="`cmdb-form-${property['bk_property_type']}`"
-                                            :class="{ error: errors.has(property['bk_property_id']) }"
-                                            :unit="property['unit']"
-                                            :disabled="checkDisabled(property)"
-                                            :options="property.option || []"
-                                            :data-vv-name="property['bk_property_id']"
-                                            :data-vv-as="property['bk_property_name']"
-                                            :placeholder="$t('请输入xx', { name: property.bk_property_name })"
-                                            v-validate="getValidateRules(property)"
-                                            v-model.trim="values[property['bk_property_id']]">
-                                        </component>
-                                        <span class="form-error"
-                                            :title="errors.first(property['bk_property_id'])">
-                                            {{errors.first(property['bk_property_id'])}}
-                                        </span>
-                                    </slot>
-                                </div>
-                            </li>
+                        <ul class="property-list">
+                            <template v-for="(property, propertyIndex) in groupedProperties[groupIndex]">
+                                <li :class="['property-item', { flex: flexProperties.includes(property['bk_property_id']) }]"
+                                    v-if="checkEditable(property)"
+                                    :key="propertyIndex">
+                                    <div class="property-name" v-if="!invisibleNameProperties.includes(property['bk_property_id'])">
+                                        <span class="property-name-text" :class="{ required: isRequired(property) }">{{property['bk_property_name']}}</span>
+                                        <i class="property-name-tooltips icon-cc-tips"
+                                            v-if="property['placeholder']"
+                                            v-bk-tooltips="htmlEncode(property['placeholder'])">
+                                        </i>
+                                        <form-tips :type="type" :property="property" :render="renderTips"></form-tips>
+                                    </div>
+                                    <div class="property-value clearfix">
+                                        <slot :name="property.bk_property_id">
+                                            <component class="form-component"
+                                                :is="`cmdb-form-${property['bk_property_type']}`"
+                                                :class="{ error: errors.has(property['bk_property_id']) }"
+                                                :unit="property['unit']"
+                                                :row="2"
+                                                :disabled="checkDisabled(property)"
+                                                :options="property.option || []"
+                                                :data-vv-name="property['bk_property_id']"
+                                                :data-vv-as="property['bk_property_name']"
+                                                :placeholder="getPlaceholder(property)"
+                                                :auto-select="false"
+                                                v-bind="$attrs"
+                                                v-validate="getValidateRules(property)"
+                                                v-model.trim="values[property['bk_property_id']]">
+                                            </component>
+                                            <span class="form-error"
+                                                :title="errors.first(property['bk_property_id'])">
+                                                {{errors.first(property['bk_property_id'])}}
+                                            </span>
+                                        </slot>
+                                    </div>
+                                </li>
+                            </template>
                         </ul>
                     </cmdb-collapse>
                 </div>
@@ -50,17 +56,16 @@
             v-if="showOptions"
             :class="{ sticky: scrollbar }">
             <slot name="form-options">
-                <span class="inline-block-middle"
-                    v-cursor="{
-                        active: !$isAuthorized(saveAuth),
-                        auth: [saveAuth]
-                    }">
-                    <bk-button class="button-save" theme="primary"
-                        :disabled="!$isAuthorized(saveAuth) || !hasChange || $loading()"
+                <cmdb-auth class="inline-block-middle" :auth="saveAuth">
+                    <bk-button slot-scope="{ disabled }"
+                        class="button-save"
+                        theme="primary"
+                        :loading="$loading()"
+                        :disabled="disabled || (type !== 'create' && !hasChange)"
                         @click="handleSave">
-                        {{$t('保存')}}
+                        {{type === 'create' ? $t('提交') : $t('保存')}}
                     </bk-button>
-                </span>
+                </cmdb-auth>
                 <bk-button class="button-cancel" @click="handleCancel">{{$t('取消')}}</bk-button>
             </slot>
             <slot name="extra-options"></slot>
@@ -71,8 +76,12 @@
 <script>
     import formMixins from '@/mixins/form'
     import RESIZE_EVENTS from '@/utils/resize-events'
+    import FormTips from './form-tips.js'
     export default {
         name: 'cmdb-form',
+        components: {
+            FormTips
+        },
         mixins: [formMixins],
         props: {
             inst: {
@@ -96,9 +105,19 @@
                 default: true
             },
             saveAuth: {
-                type: [String, Array],
-                default: ''
-            }
+                type: Object,
+                default: null
+            },
+            renderTips: Function,
+            flexProperties: {
+                type: Array,
+                default: () => []
+            },
+            invisibleNameProperties: {
+                type: Array,
+                default: () => []
+            },
+            customValidator: Function
         },
         data () {
             return {
@@ -149,11 +168,8 @@
                 this.scrollbar = $layout.scrollHeight !== $layout.offsetHeight
             },
             initValues () {
-                this.values = this.$tools.getInstFormValues(this.properties, this.inst)
-                const timer = setTimeout(() => {
-                    this.refrenceValues = this.$tools.clone(this.values)
-                    clearTimeout(timer)
-                })
+                this.values = this.$tools.getInstFormValues(this.properties, this.inst, this.type === 'create')
+                this.refrenceValues = this.$tools.clone(this.values)
             },
             checkGroupAvailable (properties) {
                 const availabelProperties = properties.filter(property => {
@@ -173,6 +189,18 @@
                 }
                 return !property.editable || property.isreadonly || this.disabledProperties.includes(property.bk_property_id)
             },
+            isRequired (property) {
+                return property.isrequired
+                // 后台无对应逻辑，前端屏蔽唯一校验配置中为空必须校验的字段设置为必填的逻辑
+                // if (property.isrequired) {
+                //     return true
+                // }
+                // const unique = this.objectUnique.find(unique => unique.must_check)
+                // if (unique) {
+                //     return unique.keys.some(key => key.key_id === property.id)
+                // }
+                // return false
+            },
             htmlEncode (placeholder) {
                 let temp = document.createElement('div')
                 temp.innerHTML = placeholder
@@ -180,49 +208,45 @@
                 temp = null
                 return output
             },
+            getPlaceholder (property) {
+                const placeholderTxt = ['enum', 'list', 'organization'].includes(property.bk_property_type) ? '请选择xx' : '请输入xx'
+                return this.$t(placeholderTxt, { name: property.bk_property_name })
+            },
             getValidateRules (property) {
-                const rules = {}
-                const {
-                    bk_property_type: propertyType,
-                    option,
-                    isrequired
-                } = property
-                if (isrequired) {
+                const rules = this.$tools.getValidateRules(property)
+                if (this.isRequired(property)) {
                     rules.required = true
                 }
-                if (option) {
-                    if (propertyType === 'int') {
-                        if (option.hasOwnProperty('min') && !['', null, undefined].includes(option.min)) {
-                            rules['min_value'] = option.min
-                        }
-                        if (option.hasOwnProperty('max') && !['', null, undefined].includes(option.max)) {
-                            rules['max_value'] = option.max
-                        }
-                    } else if (['singlechar', 'longchar'].includes(propertyType)) {
-                        rules['regex'] = option
-                    }
+
+                if (['bk_set_name', 'bk_module_name', 'bk_inst_name'].includes(property.bk_property_id)) {
+                    rules.businessTopoInstNames = true
                 }
-                if (['singlechar', 'longchar'].includes(propertyType)) {
-                    rules[propertyType] = true
-                    rules.length = propertyType === 'singlechar' ? 256 : 2000
-                }
-                if (propertyType === 'float') {
-                    rules['float'] = true
-                }
+
                 return rules
             },
-            handleSave () {
-                this.$validator.validateAll().then(result => {
-                    if (result) {
-                        this.$emit('on-submit', { ...this.values }, { ...this.changedValues }, this.inst, this.type)
-                    } else {
-                        this.uncollapseGroup()
-                    }
-                })
+            async handleSave () {
+                const validatePromise = [this.$validator.validateAll()]
+                if (typeof this.customValidator === 'function') {
+                    validatePromise.push(this.customValidator())
+                }
+                const results = await Promise.all(validatePromise)
+                const isValid = results.every(result => result)
+                if (isValid) {
+                    this.$emit(
+                        'on-submit',
+                        this.$tools.formatValues(this.values, this.properties),
+                        this.$tools.formatValues(this.changedValues, this.properties),
+                        this.inst,
+                        this.type
+                    )
+                } else {
+                    this.uncollapseGroup()
+                }
             },
             uncollapseGroup () {
                 this.errors.items.forEach(item => {
-                    const property = this.properties.find(property => property['bk_property_id'] === item.field)
+                    const compareKey = item.scope || item.field
+                    const property = this.properties.find(property => property['bk_property_id'] === compareKey)
                     const group = property['bk_property_group']
                     this.groupState[group] = false
                 })
@@ -235,46 +259,51 @@
 </script>
 
 <style lang="scss" scoped>
-    .form-layout{
+    .form-layout {
         height: 100%;
         @include scrollbar-y;
     }
-    .form-groups{
+    .form-groups {
         padding: 0 0 0 32px;
     }
-    .property-group{
+    .property-group {
         padding: 7px 0 10px 0;
         &:first-child{
             padding: 28px 0 10px 0;
         }
     }
-    .group-name{
+    .group-name {
         font-size: 14px;
         line-height: 14px;
         color: #333948;
         overflow: visible;
     }
-    .property-list{
+    .property-list {
         padding: 4px 0;
-        .property-item{
+        display: flex;
+        flex-wrap: wrap;
+        .property-item {
             width: 50%;
             margin: 12px 0 0;
             padding: 0 54px 0 0;
             font-size: 12px;
-            .property-name{
+            flex: 0 0 50%;
+            max-width: 50%;
+            // flex: 0 1 auto;
+            .property-name {
                 display: block;
-                margin: 6px 0 10px;
+                margin: 2px 0 6px;
                 color: $cmdbTextColor;
-                line-height: 16px;
+                line-height: 24px;
                 font-size: 0;
             }
-            .property-name-text{
+            .property-name-text {
                 position: relative;
                 display: inline-block;
                 max-width: calc(100% - 20px);
                 padding: 0 10px 0 0;
                 vertical-align: middle;
-                font-size: 12px;
+                font-size: 14px;
                 @include ellipsis;
                 &.required:after{
                     position: absolute;
@@ -285,17 +314,16 @@
                     color: #ff5656;
                 }
             }
-            .property-name-tooltips{
+            .property-name-tooltips {
                 display: inline-block;
                 vertical-align: middle;
                 width: 16px;
                 height: 16px;
                 font-size: 16px;
+                margin-right: 6px;
                 color: #c3cdd7;
             }
-            .property-value{
-                height: 32px;
-                line-height: 32px;
+            .property-value {
                 font-size: 0;
                 position: relative;
                 /deep/ .control-append-group {
@@ -304,14 +332,21 @@
                     }
                 }
             }
+
+            &.flex {
+                flex: 1;
+                padding-right: 54px;
+                width: 100%;
+                max-width: unset;
+            }
         }
     }
-    .form-options{
+    .form-options {
         position: sticky;
         bottom: 0;
         left: 0;
         width: 100%;
-        padding: 28px 32px 0;
+        padding: 10px 32px 0;
         font-size: 0;
         &.sticky {
             padding: 10px 32px;
@@ -319,11 +354,11 @@
             background-color: #fff;
             z-index: 100;
         }
-        .button-save{
+        .button-save {
             min-width: 76px;
             margin-right: 4px;
         }
-        .button-cancel{
+        .button-cancel {
             min-width: 76px;
             margin: 0 4px;
             background-color: #fff;

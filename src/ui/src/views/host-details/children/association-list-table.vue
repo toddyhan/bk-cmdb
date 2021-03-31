@@ -1,5 +1,5 @@
 <template>
-    <div class="table" v-bkloading="{ isLoading: $loading(propertyRequest, instanceRequest) }">
+    <div class="table" v-show="instances.length" v-bkloading="{ isLoading: $loading(propertyRequest, instanceRequest) }">
         <div class="table-info clearfix">
             <div class="info-title fl" @click="expanded = !expanded">
                 <i class="icon bk-icon icon-right-shape"
@@ -11,11 +11,11 @@
             <div class="info-pagination fr" v-show="pagination.count">
                 <span class="pagination-info">{{getPaginationInfo()}}</span>
                 <span class="pagination-toggle">
-                    <i class="pagination-icon bk-icon icon-angle-left"
+                    <i class="pagination-icon bk-icon icon-cc-arrow-down left"
                         :class="{ disabled: pagination.current === 1 }"
                         @click="togglePage(-1)">
                     </i>
-                    <i class="pagination-icon bk-icon icon-angle-right"
+                    <i class="pagination-icon bk-icon icon-cc-arrow-down right"
                         :class="{ disabled: pagination.current === totalPage }"
                         @click="togglePage(1)">
                     </i>
@@ -24,28 +24,29 @@
         </div>
         <bk-table class="association-table"
             v-show="expanded"
-            :data="flattenList"
+            :data="list"
             :max-height="462">
             <bk-table-column v-for="column in header"
                 :key="column.id"
                 :prop="column.id"
-                :label="column.name">
+                :label="column.name"
+                show-overflow-tooltip>
+                <template slot-scope="{ row }">{{row[column.id] | formatter(column.property)}}</template>
             </bk-table-column>
             <bk-table-column :label="$t('操作')">
                 <template slot-scope="{ row }">
-                    <span class="text-primary" @click="showTips($event, row)" v-if="$isAuthorized(updateAuth)">
-                        {{$t('取消关联')}}
-                    </span>
-                    <span class="text-primary disabled"
-                        v-else
-                        v-cursor="{
-                            active: true,
-                            auth: [updateAuth]
-                        }">
-                        {{$t('取消关联')}}
-                    </span>
+                    <cmdb-auth :auth="HOST_AUTH.U_HOST">
+                        <bk-button slot-scope="{ disabled }"
+                            text
+                            theme="primary"
+                            :disabled="disabled"
+                            @click="showTips($event, row)">
+                            {{$t('取消关联')}}
+                        </bk-button>
+                    </cmdb-auth>
                 </template>
             </bk-table-column>
+            <cmdb-table-empty slot="empty" :stuff="table.stuff" :auth="permissionAuth"></cmdb-table-empty>
         </bk-table>
         <div class="confirm-tips" ref="confirmTips" v-click-outside="hideTips" v-show="confirm.show">
             <p class="tips-content">{{$t('确认取消')}}</p>
@@ -59,9 +60,10 @@
 
 <script>
     import { mapGetters } from 'vuex'
-    import { MENU_RESOURCE_HOST_DETAILS } from '@/dictionary/menu-symbol'
+    import authMixin from '../mixin-auth'
     export default {
         name: 'cmdb-host-association-list-table',
+        mixins: [authMixin],
         props: {
             type: {
                 type: String,
@@ -85,6 +87,14 @@
                     current: 1,
                     size: 10
                 },
+                table: {
+                    stuff: {
+                        type: 'default',
+                        payload: {
+                            emptyText: this.$t('bk.table.emptyText')
+                        }
+                    }
+                },
                 expanded: false,
                 confirm: {
                     instance: null,
@@ -100,24 +110,19 @@
                 'sourceInstances',
                 'targetInstances'
             ]),
-            updateAuth () {
-                const isResourceHost = this.$route.name === MENU_RESOURCE_HOST_DETAILS
-                if (isResourceHost) {
-                    return this.$OPERATION.U_RESOURCE_HOST
-                }
-                return this.$OPERATION.U_HOST
-            },
-            flattenList () {
-                return this.$tools.flattenList(this.properties, this.list)
-            },
             hostId () {
                 return parseInt(this.$route.params.id)
             },
             model () {
                 return this.$store.getters['objectModelClassify/getModelById'](this.id)
             },
-            isBusinessModel () {
-                return !!this.$tools.getMetadataBiz(this.model)
+            permissionAuth () {
+                if (this.model.bk_obj_id === 'biz') {
+                    return {
+                        type: this.$OPERATION.R_BUSINESS
+                    }
+                }
+                return null
             },
             title () {
                 const desc = this.type === 'source' ? this.associationType.src_des : this.associationType.dest_des
@@ -151,7 +156,8 @@
                 const header = headerProperties.map(property => {
                     return {
                         id: property.bk_property_id,
-                        name: property.bk_property_name
+                        name: this.$tools.getHeaderPropertyName(property),
+                        property
                     }
                 })
                 return header
@@ -183,11 +189,9 @@
             async getProperties () {
                 try {
                     this.properties = await this.$store.dispatch('objectModelProperty/searchObjectAttribute', {
-                        params: this.$injectMetadata({
+                        params: {
                             bk_obj_id: this.id
-                        }, {
-                            inject: this.isBusinessModel
-                        }),
+                        },
                         config: {
                             fromCache: true,
                             requestId: this.propertyRequest
@@ -203,18 +207,28 @@
                 const config = {
                     requestId: this.instanceRequest,
                     cancelPrevious: true,
-                    globalError: false
+                    globalError: false,
+                    globalPermission: false
                 }
                 try {
-                    switch (this.id) {
-                        case 'host':
-                            promise = this.getHostInstances(config)
-                            break
-                        case 'biz':
-                            promise = this.getBusinessInstances(config)
-                            break
-                        default:
-                            promise = this.getModelInstances(config)
+                    if (!this.instanceIds.length) {
+                        // 业务查询会走权限中心进行数据拼接，导致为空时返回了有权限的数据
+                        // 此处为空后不走查询
+                        promise = Promise.resolve({
+                            info: [],
+                            count: 0
+                        })
+                    } else {
+                        switch (this.id) {
+                            case 'host':
+                                promise = this.getHostInstances(config)
+                                break
+                            case 'biz':
+                                promise = this.getBusinessInstances(config)
+                                break
+                            default:
+                                promise = this.getModelInstances(config)
+                        }
                     }
                     const data = await promise
                     this.list = data.info
@@ -240,7 +254,7 @@
                     }
                 })
                 return this.$store.dispatch('hostSearch/searchHost', {
-                    params: this.$injectMetadata({
+                    params: {
                         bk_biz_id: -1,
                         condition,
                         id: {
@@ -252,7 +266,7 @@
                             ...this.page,
                             sort: 'bk_host_id'
                         }
-                    }),
+                    },
                     config
                 }).then(data => {
                     return {
@@ -281,7 +295,7 @@
             getModelInstances (config) {
                 return this.$store.dispatch('objectCommonInst/searchInst', {
                     objId: this.id,
-                    params: this.$injectMetadata({
+                    params: {
                         fields: {},
                         condition: {
                             [this.id]: [{
@@ -294,7 +308,7 @@
                             ...this.page,
                             sort: 'bk_inst_id'
                         }
-                    }),
+                    },
                     config
                 }).then(data => {
                     data = data || {
@@ -316,9 +330,7 @@
                     await this.$store.dispatch('objectAssociation/deleteInstAssociation', {
                         id: associationInstance.asso_id,
                         config: {
-                            data: this.$injectMetadata({}, {
-                                inject: !!this.$tools.getMetadataBiz(this.model)
-                            })
+                            data: {}
                         }
                     })
                     this.$store.commit('hostDetails/deleteAssociation', {
@@ -413,14 +425,20 @@
     .info-pagination {
         color: #8b8d95;
         .pagination-toggle {
+            margin-left: 10px;
             .pagination-icon {
-                transform: scale(.5);
-                font-size: 20px;
+                font-size: 14px;
                 color: #979BA5;
                 cursor: pointer;
                 &.disabled {
                     color: #C4C6CC;
                     cursor: not-allowed;
+                }
+                &.left {
+                    transform: rotate(90deg);
+                }
+                &.right {
+                    transform: rotate(-90deg);
                 }
             }
         }

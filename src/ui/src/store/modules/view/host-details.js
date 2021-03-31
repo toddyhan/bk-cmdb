@@ -1,4 +1,3 @@
-import { getMetadataBiz } from '@/utils/tools'
 const state = {
     info: {},
     properties: [],
@@ -16,12 +15,16 @@ const state = {
     expandAll: false
 }
 
+function isBizCustomData (data) {
+    return data.hasOwnProperty('bk_biz_id') && data.bk_biz_id > 0
+}
 const getters = {
     groupedProperties: state => {
         const groupedProperties = []
         state.propertyGroups.forEach(group => {
             const properties = state.properties.filter(property => property.bk_property_group === group.bk_group_id)
             if (properties.length) {
+                properties.sort((prev, next) => prev.bk_property_index - next.bk_property_index)
                 groupedProperties.push({
                     ...group,
                     properties
@@ -29,14 +32,14 @@ const getters = {
             }
         })
         return groupedProperties.sort((prev, next) => {
-            const prevMetadata = !!getMetadataBiz(prev)
-            const nextMetadata = !!getMetadataBiz(next)
+            const bizCustomPrev = isBizCustomData(prev)
+            const bizCustomNext = isBizCustomData(next)
             if (
-                (prevMetadata && nextMetadata)
-                || (!prevMetadata && !nextMetadata)
+                (bizCustomPrev && bizCustomNext)
+                || (!bizCustomPrev && !bizCustomNext)
             ) {
                 return prev.bk_group_index - next.bk_group_index
-            } else if (prevMetadata) {
+            } else if (bizCustomPrev) {
                 return 1
             } else {
                 return -1
@@ -48,7 +51,10 @@ const getters = {
     source: state => state.association.source,
     target: state => state.association.target,
     sourceInstances: state => state.instances.source,
-    targetInstances: state => state.instances.target
+    targetInstances: state => state.instances.target,
+    isBusinessHost: state => {
+        return (state.info.biz || []).some(business => business.default === 0)
+    }
 }
 
 const mutations = {

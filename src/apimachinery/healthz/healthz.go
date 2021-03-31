@@ -66,6 +66,15 @@ func (h *health) HealthCheck(moduleName string) (healthy bool, err error) {
 	case types.CC_MODULE_CORESERVICE:
 		h.capability.Discover = h.disc.CoreService()
 
+	case types.CC_MODULE_OPERATION:
+		h.capability.Discover = h.disc.OperationServer()
+
+	case types.CC_MODULE_TASK:
+		h.capability.Discover = h.disc.TaskServer()
+
+	case types.CC_MODULE_CLOUD:
+		h.capability.Discover = h.disc.CloudServer()
+
 	default:
 		return false, fmt.Errorf("unsupported health module: %s", moduleName)
 	}
@@ -74,7 +83,7 @@ func (h *health) HealthCheck(moduleName string) (healthy bool, err error) {
 	client := rest.NewRESTClient(h.capability, "/")
 	err = client.Get().
 		WithContext(context.Background()).
-		SubResource("/healthz").
+		SubResourcef("/healthz").
 		Body(nil).
 		Do().
 		Into(resp)

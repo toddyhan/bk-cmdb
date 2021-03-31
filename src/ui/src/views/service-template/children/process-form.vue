@@ -1,10 +1,6 @@
 <template>
     <div class="form-layout">
-        <feature-tips
-            class="process-tips"
-            :show-tips="true"
-            :desc="$t('添加进程提示')">
-        </feature-tips>
+        <cmdb-tips class="process-tips">{{$t('添加进程提示')}}</cmdb-tips>
         <div class="form-groups" ref="formGroups">
             <template v-for="(group, groupIndex) in $sortedGroups">
                 <div class="property-group"
@@ -13,40 +9,43 @@
                     <cmdb-collapse
                         :label="group['bk_group_name']"
                         :collapse.sync="groupState[group['bk_group_id']]">
-                        <ul class="property-list clearfix">
-                            <li class="property-item fl"
-                                v-for="(property, propertyIndex) in groupedProperties[groupIndex]"
-                                v-if="checkEditable(property)"
-                                :key="propertyIndex">
-                                <div class="property-name clearfix">
-                                    <bk-checkbox class="form-checkbox"
-                                        v-bk-tooltips="$t('纳入模板管理')"
-                                        v-if="property['isLocking'] !== undefined"
-                                        v-model="values[property['bk_property_id']]['as_default_value']"
-                                        @change="handleResetValue(values[property['bk_property_id']]['as_default_value'], property)">
-                                        <span class="property-name-text" :class="{ required: property['isrequired'] }">{{property['bk_property_name']}}</span>
-                                    </bk-checkbox>
-                                    <span v-else class="property-name-text" :class="{ required: property['isrequired'] }">{{property['bk_property_name']}}</span>
-                                    <i class="property-name-tooltips icon-cc-tips"
-                                        v-if="property['placeholder']"
-                                        v-bk-tooltips="htmlEncode(property['placeholder'])">
-                                    </i>
-                                </div>
-                                <div class="property-value">
-                                    <component class="form-component"
-                                        :is="`cmdb-form-${property['bk_property_type']}`"
-                                        :disabled="type === 'update' && ['bk_func_name'].includes(property['bk_property_id']) || !values[property['bk_property_id']]['as_default_value']"
-                                        :class="{ error: errors.has(property['bk_property_id']) }"
-                                        :options="property.option || []"
-                                        :data-vv-name="property['bk_property_id']"
-                                        :data-vv-as="property['bk_property_name']"
-                                        :placeholder="$t('请输入xx', { name: property.bk_property_name })"
-                                        v-validate="getValidateRules(property)"
-                                        v-model.trim="values[property['bk_property_id']]['value']">
-                                    </component>
-                                    <span class="form-error">{{errors.first(property['bk_property_id'])}}</span>
-                                </div>
-                            </li>
+                        <ul class="property-list">
+                            <template v-for="(property, propertyIndex) in groupedProperties[groupIndex]">
+                                <li :class="['property-item', { flex: property.bk_property_type === 'table' }]"
+                                    v-if="checkEditable(property)"
+                                    :key="propertyIndex">
+                                    <div class="property-name clearfix" v-if="!invisibleNameProperties.includes(property['bk_property_id'])">
+                                        <bk-checkbox class="form-checkbox"
+                                            v-if="property['isLocking'] !== undefined"
+                                            v-model="values[property['bk_property_id']]['as_default_value']"
+                                            @change="handleResetValue(values[property['bk_property_id']]['as_default_value'], property)">
+                                            <span class="property-name-text" :class="{ required: property['isrequired'] }">{{property['bk_property_name']}}</span>
+                                        </bk-checkbox>
+                                        <span v-else class="property-name-text" :class="{ required: property['isrequired'] }">{{property['bk_property_name']}}</span>
+                                        <i class="property-name-tooltips icon-cc-tips"
+                                            v-if="property['placeholder']"
+                                            v-bk-tooltips="htmlEncode(property['placeholder'])">
+                                        </i>
+                                    </div>
+                                    <div class="property-value">
+                                        <component class="form-component" ref="formComponent"
+                                            :is="getComponentType(property)"
+                                            :disabled="getPropertyEditStatus(property)"
+                                            :class="{ error: errors.has(property['bk_property_id']) }"
+                                            :unit="property.unit"
+                                            :row="2"
+                                            :options="property.option || []"
+                                            :data-vv-name="property['bk_property_id']"
+                                            :data-vv-as="property['bk_property_name']"
+                                            :placeholder="getPlaceholder(property)"
+                                            :auto-select="false"
+                                            v-validate="getValidateRules(property)"
+                                            v-model.trim="values[property['bk_property_id']]['value']">
+                                        </component>
+                                        <span class="form-error">{{getFormError(property)}}</span>
+                                    </div>
+                                </li>
+                            </template>
                         </ul>
                     </cmdb-collapse>
                 </div>
@@ -56,17 +55,15 @@
             v-if="showOptions"
             :class="{ sticky: scrollbar }">
             <slot name="form-options">
-                <span style="display: inline-block"
-                    v-cursor="{
-                        active: !$isAuthorized(auth),
-                        auth: [auth]
-                    }">
-                    <bk-button class="button-save" theme="primary"
-                        :disabled="saveDisabled || $loading() || !$isAuthorized(auth)"
+                <cmdb-auth :auth="auth">
+                    <bk-button slot-scope="{ disabled }"
+                        class="button-save"
+                        theme="primary"
+                        :disabled="saveDisabled || $loading() || disabled || btnStatus()"
                         @click="handleSave">
-                        {{$t('保存')}}
+                        {{type === 'create' ? $t('提交') : $t('保存')}}
                     </bk-button>
-                </span>
+                </cmdb-auth>
                 <bk-button class="button-cancel" @click="handleCancel">{{$t('取消')}}</bk-button>
             </slot>
             <slot name="extra-options"></slot>
@@ -77,11 +74,11 @@
 <script>
     import formMixins from '@/mixins/form'
     import RESIZE_EVENTS from '@/utils/resize-events'
-    import featureTips from '@/components/feature-tips/index'
-    import { mapGetters, mapMutations } from 'vuex'
+    import { mapMutations } from 'vuex'
+    import ProcessFormPropertyTable from './process-form-property-table'
     export default {
         components: {
-            featureTips
+            ProcessFormPropertyTable
         },
         mixins: [formMixins],
         props: {
@@ -105,6 +102,7 @@
                 type: Boolean,
                 default: true
             },
+            dataIndex: Number,
             showOptions: {
                 type: Boolean,
                 default: true
@@ -113,45 +111,27 @@
             hasUsed: {
                 type: Boolean,
                 default: false
+            },
+            auth: {
+                type: Object,
+                default: null
+            },
+            submitFormat: {
+                type: Function,
+                default: data => data
             }
         },
         data () {
             return {
-                ipOption: [
-                    {
-                        'name': '127.0.0.1',
-                        'type': 'text',
-                        'is_default': true,
-                        'id': '1'
-                    },
-                    {
-                        'id': '2',
-                        'name': '0.0.0.0',
-                        'type': 'text',
-                        'is_default': false
-                    }
-                    // {
-                    //     'name': '第一内网IP',
-                    //     'type': 'text',
-                    //     'is_default': false,
-                    //     'id': '3'
-                    // },
-                    // {
-                    //     'name': '第一外网IP',
-                    //     'type': 'text',
-                    //     'is_default': false,
-                    //     'id': '4'
-                    // }
-                ],
                 values: {
                     bk_func_name: ''
                 },
                 refrenceValues: {},
-                scrollbar: false
+                scrollbar: false,
+                invisibleNameProperties: ['bind_info']
             }
         },
         computed: {
-            ...mapGetters('serviceProcess', ['hasProcessName']),
             groupedProperties () {
                 const properties = this.$groupedProperties.map(properties => {
                     const filterProperties = properties.filter(property => !['singleasst', 'multiasst', 'foreignkey'].includes(property['bk_property_type']))
@@ -159,20 +139,10 @@
                         if (!['bk_func_name', 'bk_process_name'].includes(property['bk_property_id'])) {
                             property.isLocking = false
                         }
-                        if (['bind_ip'].includes(property['bk_property_id'])) {
-                            property.bk_property_type = 'enum'
-                            property.option = this.ipOption
-                        }
                     })
                     return filterProperties
                 })
                 return properties
-            },
-            auth () {
-                if (this.isCreatedService) {
-                    return this.$OPERATION.C_SERVICE_TEMPLATE
-                }
-                return this.$OPERATION.U_SERVICE_TEMPLATE
             }
         },
         watch: {
@@ -202,62 +172,56 @@
         },
         methods: {
             ...mapMutations('serviceProcess', ['addLocalProcessTemplate', 'updateLocalProcessTemplate']),
+            getComponentType (property) {
+                const type = property.bk_property_type
+                if (type === 'table') {
+                    return 'process-form-property-table'
+                }
+                return `cmdb-form-${type}`
+            },
+            getPropertyEditStatus (property) {
+                const uneditable = ['bk_func_name', 'bk_process_name'].includes(property['bk_property_id']) && !this.isCreatedService
+                return (this.type === 'update' && uneditable)
+                    || !this.values[property['bk_property_id']]['as_default_value']
+            },
             changedValues () {
                 const changedValues = {}
-                if (!this.values['bind_ip']['value']) this.values['bind_ip']['value'] = ''
-                for (const propertyId in this.values) {
-                    if (JSON.stringify(this.values[propertyId]) !== JSON.stringify(this.refrenceValues[propertyId])) {
+                if (!Object.keys(this.refrenceValues).length) return {}
+                Object.keys(this.values).forEach(propertyId => {
+                    let isChange = false
+                    if (!['sign_id', 'process_id'].includes(propertyId)) {
+                        isChange = Object.keys(this.values[propertyId]).some(key => {
+                            return JSON.stringify(this.values[propertyId][key]) !== JSON.stringify(this.refrenceValues[propertyId][key])
+                        })
+                    }
+                    if (isChange) {
                         changedValues[propertyId] = this.values[propertyId]
                     }
-                }
+                })
                 return changedValues
             },
             hasChange () {
                 return !!Object.keys(this.changedValues()).length
             },
-            filterChangedValues () {
-                const filterValues = {}
-                const changedData = this.changedValues()
-                for (const propertyId in changedData) {
-                    filterValues[propertyId] = {}
-                    Object.keys(changedData[propertyId]).forEach(key => {
-                        if (changedData[propertyId][key] !== this.refrenceValues[propertyId][key]) {
-                            filterValues[propertyId][key] = changedData[propertyId][key]
-                        }
-                    })
-                }
-                return filterValues
+            btnStatus () {
+                return this.type === 'create' ? false : !this.hasChange()
             },
             checkScrollbar () {
                 const $layout = this.$el
                 this.scrollbar = $layout.scrollHeight !== $layout.offsetHeight
             },
             initValues () {
-                const inst = {}
-                if (this.type === 'update') {
-                    Object.keys(this.inst).forEach(key => {
-                        const type = typeof this.inst[key]
-                        if (type === 'object') {
-                            inst[key] = this.inst[key] ? this.inst[key]['value'] : this.inst[key]
-                        } else {
-                            inst[key] = this.inst[key]
-                        }
-                    })
-                }
-                const formValues = this.$tools.getInstFormValues(this.properties, inst)
+                const restValues = {}
+                const formValues = this.$tools.getInstFormValues(this.properties, {}, this.type === 'create')
                 Object.keys(formValues).forEach(key => {
-                    this.$set(this.values, key, {
-                        value: formValues[key],
-                        as_default_value: this.type === 'update'
-                            ? this.inst[key] ? this.inst[key]['as_default_value'] : false
-                            : ['bk_func_name', 'bk_process_name'].includes(key)
-                    })
+                    if (!this.inst.hasOwnProperty(key)) {
+                        restValues[key] = {
+                            as_default_value: ['bk_func_name', 'bk_process_name', 'bind_info'].includes(key),
+                            value: formValues[key]
+                        }
+                    }
                 })
-                if (this.isCreatedService && this.type === 'update') {
-                    this.values['sign_id'] = inst['sign_id']
-                } else if (this.type === 'update') {
-                    this.values['process_id'] = inst['process_id']
-                }
+                this.values = Object.assign({}, this.values, restValues, this.inst)
                 const timer = setTimeout(() => {
                     this.refrenceValues = this.$tools.clone(this.values)
                     clearTimeout(timer)
@@ -288,67 +252,61 @@
                 temp = null
                 return output
             },
-            getValidateRules (property) {
-                const rules = {}
-                const {
-                    bk_property_type: propertyType,
-                    option,
-                    isrequired
-                } = property
-                if (isrequired) {
-                    rules.required = true
-                }
-                if (option) {
-                    if (propertyType === 'int') {
-                        if (option.hasOwnProperty('min') && !['', null, undefined].includes(option.min)) {
-                            rules['min_value'] = option.min
-                        }
-                        if (option.hasOwnProperty('max') && !['', null, undefined].includes(option.max)) {
-                            rules['max_value'] = option.max
-                        }
-                    } else if (['singlechar', 'longchar'].includes(propertyType)) {
-                        rules['regex'] = option
-                    }
-                }
-                if (['singlechar', 'longchar'].includes(propertyType)) {
-                    rules[propertyType] = true
-                    rules.length = propertyType === 'singlechar' ? 256 : 2000
-                }
-                if (propertyType === 'float') {
-                    rules['float'] = true
-                }
-                return rules
+            getPlaceholder (property) {
+                const placeholderTxt = ['enum', 'list'].includes(property.bk_property_type) ? '请选择xx' : '请输入xx'
+                return this.$t(placeholderTxt, { name: property.bk_property_name })
             },
-            handleSave () {
-                this.$validator.validateAll().then(result => {
-                    if (!this.hasChange()) {
+            getValidateRules (property) {
+                return this.$tools.getValidateRules(property)
+            },
+            getFormError (property) {
+                if (property.bk_property_type === 'table') {
+                    const hasError = this.errors.items.some(item => item.scope === property.bk_property_id)
+                    return hasError ? this.$t('有未正确定义的监听信息') : ''
+                }
+                return this.errors.first(property.bk_property_id)
+            },
+            callComponentValidator () {
+                const componentValidator = []
+                const { formComponent = [] } = this.$refs
+                formComponent.forEach(component => {
+                    componentValidator.push(component.$validator.validateAll())
+                    componentValidator.push(component.$validator.validateScopes())
+                })
+                return componentValidator
+            },
+            async handleSave () {
+                try {
+                    const results = await Promise.all([
+                        this.$validator.validateAll(),
+                        ...this.callComponentValidator()
+                    ])
+                    const result = results.every(result => result)
+                    if (result && !this.hasChange()) {
                         this.$emit('on-cancel')
-                        return
-                    }
-                    if (result && this.isCreatedService) {
-                        if (this.type === 'create' && !this.hasProcessName(this.values)) {
-                            this.values['sign_id'] = new Date().getTime()
-                            this.addLocalProcessTemplate(this.values)
+                    } else if (result && this.isCreatedService) {
+                        const cloneValues = this.$tools.clone(this.values)
+                        const formatValue = this.submitFormat(cloneValues)
+                        if (this.type === 'create') {
+                            this.addLocalProcessTemplate(formatValue)
                             this.$emit('on-cancel')
                         } else if (this.type === 'update') {
-                            this.updateLocalProcessTemplate(this.values)
+                            this.updateLocalProcessTemplate({ process: formatValue, index: this.dataIndex })
                             this.$emit('on-cancel')
-                        } else {
-                            this.$bkMessage({
-                                message: this.$t('进程名称已存在'),
-                                theme: 'error'
-                            })
                         }
                     } else if (result) {
-                        this.$emit('on-submit', this.values, this.filterChangedValues(), this.type)
+                        this.$emit('on-submit', this.values, this.changedValues(), this.type)
                     } else {
                         this.uncollapseGroup()
                     }
-                })
+                } catch (error) {
+                    console.error(error)
+                }
             },
             uncollapseGroup () {
                 this.errors.items.forEach(item => {
-                    const property = this.properties.find(property => property['bk_property_id'] === item.field)
+                    const compareKey = item.scope || item.field
+                    const property = this.properties.find(property => property['bk_property_id'] === compareKey)
                     const group = property['bk_property_group']
                     this.groupState[group] = false
                 })
@@ -375,12 +333,10 @@
             handleResetValue (status, property) {
                 if (!status) {
                     const type = property['bk_property_type']
-                    if (['enum'].includes(type)) {
-                        const option = property['option']
-                        const defaultValue = option[0]['id'] ? option[0]['id'] : ''
-                        this.values[property['bk_property_id']]['value'] = defaultValue
-                    } else if (['bool'].includes(type)) {
+                    if (['bool'].includes(type)) {
                         this.values[property['bk_property_id']]['value'] = false
+                    } else if (['int'].includes(type)) {
+                        this.values[property['bk_property_id']]['value'] = null
                     } else {
                         this.values[property['bk_property_id']]['value'] = ''
                     }
@@ -391,65 +347,71 @@
 </script>
 
 <style lang="scss" scoped>
-    .form-layout{
+    .form-layout {
         height: 100%;
         @include scrollbar-y;
     }
     .process-tips {
         margin: 10px 20px 0;
     }
-    .form-groups{
+    .form-groups {
         padding: 0 20px;
     }
-    .property-group{
+    .property-group {
         padding: 20px 0 10px 0;
         &:first-child {
         padding: 15px 0 10px 0;
         }
     }
-    .group-name{
+    .group-name {
         font-size: 14px;
         font-weight: bold;
         line-height: 14px;
         color: #63656e;
         overflow: visible;
     }
-    .property-list{
+    .property-list {
         padding: 4px 0;
-        .property-item{
+        display: flex;
+        flex-wrap: wrap;
+        .property-item {
             width: 50%;
             margin: 12px 0 0;
             font-size: 12px;
+            flex: 0 0 50%;
             &:nth-child(odd) {
                 padding-right: 30px;
             }
             &:nth-child(even) {
                 padding-left: 30px;
             }
-            .property-name{
+            .property-name {
                 display: block;
                 margin: 6px 0 10px;
                 color: $cmdbTextColor;
                 line-height: 16px;
                 font-size: 0;
             }
-            .property-name-text{
+            .property-name-text {
                 position: relative;
                 display: inline-block;
                 vertical-align: middle;
-                padding: 0 14px 0 0;
+                padding: 0 6px 0 0;
                 font-size: 14px;
                 @include ellipsis;
-                &.required:after{
-                    position: absolute;
-                    left: 100%;
-                    top: 0;
-                    margin: 0 0 0 -10px;
-                    content: "*";
-                    color: #ff5656;
+                &.required {
+                    padding: 0 14px 0 0;
+                    &:after {
+                        position: absolute;
+                        left: 100%;
+                        top: 0;
+                        margin: 0 0 0 -10px;
+                        content: "*";
+                        color: #ff5656;
+                    }
                 }
             }
-            .property-name-tooltips{
+            .property-name-tooltips {
                 display: inline-block;
                 vertical-align: middle;
                 width: 16px;
@@ -457,10 +419,8 @@
                 font-size: 16px;
                 color: #c3cdd7;
             }
-            .property-value{
-                height: 32px;
-                line-height: 32px;
-                font-size: 12px;
+            .property-value {
+                font-size: 0;
                 position: relative;
                 /deep/ .control-append-group {
                     .bk-input-text {
@@ -471,25 +431,32 @@
             .form-checkbox {
                 outline: 0;
             }
+
+            &.flex {
+                flex: 1;
+                padding-right: 0;
+                width: 100%;
+            }
         }
     }
-    .form-options{
+    .form-options {
         position: sticky;
         bottom: 0;
         left: 0;
         width: 100%;
         padding: 28px 32px 0;
         font-size: 0;
+        z-index: 101;
         &.sticky {
             padding: 10px 32px;
             border-top: 1px solid $cmdbBorderColor;
             background-color: #fff;
         }
-        .button-save{
+        .button-save {
             min-width: 76px;
             margin-right: 4px;
         }
-        .button-cancel{
+        .button-cancel {
             min-width: 76px;
             margin: 0 4px;
             background-color: #fff;

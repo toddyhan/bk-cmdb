@@ -11,10 +11,10 @@
                         name="asstId"
                         :disabled="isReadOnly || isEdit"
                         v-model.trim="relationInfo['bk_asst_id']"
-                        v-validate="'required|associationId'"
+                        v-validate="'required|associationId|length:128'"
                         :placeholder="$t('请输入英文标识')">
                     </bk-input>
-                    <p class="form-error">{{errors.first('asstId')}}</p>
+                    <p class="form-error" :title="errors.first('asstId')">{{errors.first('asstId')}}</p>
                 </div>
             </label>
             <label class="form-label">
@@ -27,7 +27,7 @@
                         class="cmdb-form-input"
                         name="asstName"
                         :disabled="isReadOnly || isEdit && relation.ispre"
-                        v-validate="'required|singlechar|length:256'"
+                        v-validate="'required|singlechar|length:20'"
                         v-model.trim="relationInfo['bk_asst_name']"
                         :placeholder="$t('请输入名称')">
                     </bk-input>
@@ -214,9 +214,9 @@
                         padding-right: 0;
                     }
                 }
-                .label-text {
-                    padding-right: 2px;
-                }
+            }
+            .label-text {
+                width: auto;
             }
         }
     }

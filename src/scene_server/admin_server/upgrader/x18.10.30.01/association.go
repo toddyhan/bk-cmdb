@@ -23,17 +23,18 @@ import (
 	"configcenter/src/common/metadata"
 	"configcenter/src/scene_server/admin_server/upgrader"
 	"configcenter/src/storage/dal"
+	"configcenter/src/storage/dal/types"
 )
 
 func createAssociationTable(ctx context.Context, db dal.RDB, conf *upgrader.Config) error {
 	tablenames := []string{common.BKTableNameAsstDes, common.BKTableNameObjAsst, common.BKTableNameInstAsst}
 	for _, tablename := range tablenames {
-		exists, err := db.HasTable(tablename)
+		exists, err := db.HasTable(ctx, tablename)
 		if err != nil {
 			return err
 		}
 		if !exists {
-			if err = db.CreateTable(tablename); err != nil && !db.IsDuplicatedError(err) {
+			if err = db.CreateTable(ctx, tablename); err != nil && !db.IsDuplicatedError(err) {
 				return err
 			}
 		}
@@ -49,9 +50,9 @@ func createInstanceAssociationIndex(ctx context.Context, db dal.RDB, conf *upgra
 		return err
 	}
 
-	createIdxArr := []dal.Index{
-		dal.Index{Name: "idx_id", Keys: map[string]int32{"id": -1}, Background: true, Unique: true},
-		dal.Index{Name: "idx_objID_asstObjID_asstID", Keys: map[string]int32{"bk_obj_id": -1, "bk_asst_obj_id": -1, "bk_asst_id": -1}},
+	createIdxArr := []types.Index{
+		types.Index{Name: "idx_id", Keys: map[string]int32{"id": -1}, Background: true, Unique: true},
+		types.Index{Name: "idx_objID_asstObjID_asstID", Keys: map[string]int32{"bk_obj_id": -1, "bk_asst_obj_id": -1, "bk_asst_id": -1}},
 	}
 	for _, idx := range createIdxArr {
 		exist := false
@@ -159,7 +160,7 @@ func reconcilAsstData(ctx context.Context, db dal.RDB, conf *upgrader.Config) er
 	}
 
 	propertyCond := condition.CreateCondition()
-	propertyCond.Field(common.BKPropertyTypeField).In([]string{common.FieldTypeSingleAsst, common.FieldTypeMultiAsst})
+	propertyCond.Field(common.BKPropertyTypeField).In([]string{"multiasst", "singleasst"})
 	propertys := []metadata.ObjAttDes{}
 	err = db.Table(common.BKTableNameObjAttDes).Find(propertyCond.ToMapStr()).All(ctx, &propertys)
 	if err != nil {
@@ -208,9 +209,9 @@ func reconcilAsstData(ctx context.Context, db dal.RDB, conf *upgrader.Config) er
 			asst.AsstKindID = common.AssociationTypeDefault
 			property := properyMap[buildObjPropertyMapKey(asst.ObjectID, asst.ObjectAttID)]
 			switch property.PropertyType {
-			case common.FieldTypeSingleAsst:
+			case "singleasst":
 				asst.Mapping = metadata.OneToManyMapping
-			case common.FieldTypeMultiAsst:
+			case "multiasst":
 				asst.Mapping = metadata.ManyToManyMapping
 			default:
 				blog.Warnf("property: %+v, asst: %+v, for key: %v", property, asst, buildObjPropertyMapKey(asst.ObjectID, asst.ObjectAttID))
@@ -287,7 +288,7 @@ func reconcilAsstData(ctx context.Context, db dal.RDB, conf *upgrader.Config) er
 	cloudIDUpdateCond.Field(common.BKObjIDField).Eq(common.BKInnerObjIDHost)
 	cloudIDUpdateCond.Field(common.BKPropertyIDField).Eq(common.BKCloudIDField)
 	cloudIDUpdateData := mapstr.New()
-	cloudIDUpdateData.Set(common.BKPropertyTypeField, common.FieldTypeForeignKey)
+	cloudIDUpdateData.Set(common.BKPropertyTypeField, "foreignkey")
 	cloudIDUpdateData.Set(common.BKOptionField, nil)
 	blog.InfoJSON("update host cloud association cond:%s, data:%s", cloudIDUpdateCond.ToMapStr(), cloudIDUpdateData)
 	err = db.Table(common.BKTableNameObjAttDes).Update(ctx, cloudIDUpdateCond.ToMapStr(), cloudIDUpdateData)

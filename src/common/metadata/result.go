@@ -13,16 +13,125 @@
 package metadata
 
 import (
+	"fmt"
+
 	"configcenter/src/common"
+	"configcenter/src/common/errors"
 	"configcenter/src/common/mapstr"
 )
 
 // BaseResp common result struct
 type BaseResp struct {
-	Result      bool         `json:"result"`
-	Code        int          `json:"bk_error_code"`
-	ErrMsg      string       `json:"bk_error_msg"`
-	Permissions []Permission `json:"permission"`
+	Result      bool           `json:"result" mapstructure:"result"`
+	Code        int            `json:"bk_error_code" mapstructure:"bk_error_code"`
+	ErrMsg      string         `json:"bk_error_msg" mapstructure:"bk_error_msg"`
+	Permissions *IamPermission `json:"permission" mapstructure:"permission"`
+}
+
+// CCError 根据response返回的信息产生错误
+func (br *BaseResp) CCError() errors.CCErrorCoder {
+	if br.Result {
+		return nil
+	}
+	return errors.New(br.Code, br.ErrMsg)
+}
+
+// New 根据response返回的信息产生错误
+func (br *BaseResp) Error() error {
+	if br.Result {
+		return nil
+	}
+	return errors.New(br.Code, br.ErrMsg)
+}
+
+func (br *BaseResp) ToString() string {
+	return fmt.Sprintf("code:%d, message:%s", br.Code, br.ErrMsg)
+}
+
+// JsonStringResp defines a response that do not parse the data field to a struct
+// but decode it to a json string if possible
+type JsonStringResp struct {
+	BaseResp
+	Data string
+}
+
+// JsonCntInfoResp defines a response that do not parse the data's count and info fields
+// to a struct but decode it to a json string if possible
+type JsonCntInfoResp struct {
+	BaseResp
+	Data CntInfoString `json:"data"`
+}
+
+type CntInfoString struct {
+	Count int64 `json:"count"`
+	// info is a json array string field.
+	Info string `json:"info"`
+}
+
+type IamPermission struct {
+	SystemID string      `json:"system_id"`
+	Actions  []IamAction `json:"actions"`
+}
+
+type IamAction struct {
+	ID                   string            `json:"id"`
+	RelatedResourceTypes []IamResourceType `json:"related_resource_types"`
+}
+
+type IamResourceType struct {
+	SystemID   string                  `json:"system_id"`
+	Type       string                  `json:"type"`
+	Instances  [][]IamResourceInstance `json:"instances,omitempty"`
+	Attributes []IamResourceAttribute  `json:"attributes,omitempty"`
+}
+
+type IamResourceInstance struct {
+	Type string `json:"type"`
+	ID   string `json:"id"`
+}
+
+type IamResourceAttribute struct {
+	ID     string                      `json:"id"`
+	Values []IamResourceAttributeValue `json:"values"`
+}
+
+type IamResourceAttributeValue struct {
+	ID string `json:"id"`
+}
+
+type IamInstanceWithCreator struct {
+	System    string                `json:"system"`
+	Type      string                `json:"type"`
+	ID        string                `json:"id"`
+	Name      string                `json:"name"`
+	Creator   string                `json:"creator"`
+	Ancestors []IamInstanceAncestor `json:"ancestors,omitempty"`
+}
+
+type IamInstancesWithCreator struct {
+	System    string        `json:"system"`
+	Type      string        `json:"type"`
+	Creator   string        `json:"creator"`
+	Instances []IamInstance `json:"instances"`
+}
+
+type IamInstance struct {
+	ID        string                `json:"id"`
+	Name      string                `json:"name"`
+	Ancestors []IamInstanceAncestor `json:"ancestors,omitempty"`
+}
+
+type IamInstanceAncestor struct {
+	System string `json:"system"`
+	Type   string `json:"type"`
+	ID     string `json:"id"`
+}
+
+type IamCreatorActionPolicy struct {
+	Action struct {
+		ID string `json:"id"`
+	} `json:"action"`
+	PolicyID int64 `json:"policy_id"`
 }
 
 // Permission  describes all the authorities that a user
@@ -52,7 +161,7 @@ type Resource struct {
 	ResourceID       string `json:"resource_id"`
 }
 
-func NewNoPermissionResp(permission []Permission) BaseResp {
+func NewNoPermissionResp(permission *IamPermission) BaseResp {
 	return BaseResp{
 		Result:      false,
 		Code:        common.CCNoPermission,
@@ -69,8 +178,8 @@ type SuccessResponse struct {
 	Data     interface{} `json:"data"`
 }
 
-func NewSuccessResponse(data interface{}) SuccessResponse {
-	return SuccessResponse{
+func NewSuccessResponse(data interface{}) *SuccessResponse {
+	return &SuccessResponse{
 		BaseResp: SuccessBaseResp,
 		Data:     data,
 	}
@@ -84,6 +193,12 @@ type CreatedCount struct {
 // UpdatedCount created count struct
 type UpdatedCount struct {
 	Count uint64 `json:"updated_count"`
+}
+
+// UpdateAttributeIndex created bk_property_index info struct
+type UpdateAttributeIndex struct {
+	Id    int64 `json:"id"`
+	Index int64 `json:"index"`
 }
 
 // DeletedCount created count struct
@@ -143,6 +258,12 @@ type CreateOneDataResult struct {
 	Created CreatedDataResult `json:"created"`
 }
 
+// SearchResp common search response
+type SearchResp struct {
+	BaseResp `json:",inline"`
+	Data     SearchDataResult `json:"data"`
+}
+
 // SearchDataResult common search data result
 type SearchDataResult struct {
 	Count int64           `json:"count"`
@@ -177,6 +298,12 @@ type QueryModelAttributeGroupDataResult struct {
 type QueryModelClassificationDataResult struct {
 	Count int64            `json:"count"`
 	Info  []Classification `json:"info"`
+}
+
+// SearchAssociationKindResult search association kind result definition
+type SearchAssociationKindResult struct {
+	Count uint64            `json:"count"`
+	Info  []AssociationKind `json:"info"`
 }
 
 // ReadModelAttrResult  read model attribute api http response return result struct
@@ -232,4 +359,14 @@ type OperaterException struct {
 type Uint64DataResponse struct {
 	BaseResp `json:",inline"`
 	Data     uint64 `json:"data"`
+}
+
+type TransferException struct {
+	HostID []int64 `json:"bk_host_id"`
+	ErrMsg string  `json:"bk_error_msg"`
+}
+
+type TransferExceptionResult struct {
+	BaseResp `json:",inline"`
+	Data     TransferException `json:"data"`
 }

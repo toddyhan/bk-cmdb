@@ -31,7 +31,6 @@
 <script>
     import cloneToSource from './children/clone-to-source.vue'
     import cloneToOther from './children/clone-to-other.vue'
-    import { MENU_BUSINESS_SERVICE_TOPOLOGY } from '@/dictionary/menu-symbol'
     export default {
         components: {
             [cloneToSource.name]: cloneToSource,
@@ -64,17 +63,6 @@
         },
         async created () {
             try {
-                this.$store.commit('setBreadcrumbs', [{
-                    label: this.$t('服务拓扑'),
-                    route: {
-                        name: MENU_BUSINESS_SERVICE_TOPOLOGY,
-                        query: {
-                            module: this.$route.params.moduleId
-                        }
-                    }
-                }, {
-                    label: this.$route.query.title
-                }])
                 const [module, processes] = await Promise.all([
                     this.getModuleInstance(),
                     this.getServiceInstanceProcesses()
@@ -105,9 +93,10 @@
             },
             getServiceInstanceProcesses () {
                 return this.$store.dispatch('processInstance/getServiceInstanceProcesses', {
-                    params: this.$injectMetadata({
+                    params: {
+                        bk_biz_id: this.business,
                         service_instance_id: this.instanceId
-                    }),
+                    },
                     config: {
                         requestId: 'getServiceInstanceProcesses'
                     }
@@ -119,13 +108,14 @@
 
 <style lang="scss" scoped>
     .clone-layout {
-        padding: 10px 20px 28px;
+        padding: 15px 0 28px 0;
         font-size: 14px;
     }
     .host-type {
         line-height: 19px;
         .type-label{
             width: 100px;
+            text-align: right;
             &:after {
                 content: '*';
                 color: $cmdbDangerColor;

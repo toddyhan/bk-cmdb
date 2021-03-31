@@ -5,13 +5,14 @@
     margin: 0;
     padding: 0;
     box-sizing: border-box;
+    outline: none;
 }
 
 html,
 body {
     height: 100%;
     overflow: hidden;
-    font-family: -apple-system,BlinkMacSystemFont,PingFang SC,Microsoft Yahei,Arial;
+    font-family: -apple-system,BlinkMacSystemFont,PingFang SC,Microsoft YaHei,Helvetica Neue,Arial;
     color: $cmdbTextColor;
     background-color: #FAFBFD;
 }
@@ -60,13 +61,29 @@ a:focus {
 
 input::-webkit-input-placeholder,
 textarea::-webkit-input-placeholder {
-    color: #c3cdd7;
+    color: #c3cdd7 !important;
     font-size: 12px;
+}
+
+[class^="icon-cc"], [class*=" icon-cc"] {
+    /* use !important to prevent issues with browser extensions that change fonts */
+    font-family: 'bk-cmdb' !important;
+    speak: none;
+    font-style: normal;
+    font-weight: normal;
+    font-variant: normal;
+    text-transform: none;
+    line-height: 1;
+
+    /* Better Font Rendering =========== */
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
 }
 
 .inline-block-middle {
     display: inline-block;
     vertical-align: middle;
+    outline: 0;
 }
 
 .bgc-white {
@@ -88,7 +105,7 @@ div.cmdb-form-item {
             top: 100%;
             left: 0;
             font-size: 12px;
-            line-height: 14px;
+            line-height: 16px;
             color: $cmdbDangerColor;
             max-width: 100%;
             @include ellipsis;
